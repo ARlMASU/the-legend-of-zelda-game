@@ -1,0 +1,107 @@
+//<tangara version="1" encoding="UTF-8">//// based on c# guide : https://shendriks.dev/posts/2024-07-13-a-star-pathfinding-in-2d-games-the-basics-for-top-down-scenarios/
+
+public void resetPathfinding(){ // reset the Tiles' costs values
+	for(int y = 0; y < 11; y++){
+		for(int x = 0; x < 16; x++){
+			blocTiles[x][y].setCostFromStart(Double.POSITIVE_INFINITY);
+			blocTiles[x][y].setCostToTarget(Double.POSITIVE_INFINITY);
+			blocTiles[x][y].setParentTile(null);
+		}
+	}
+}
+
+public int getDistance(TilePos a, TilePos b){
+	return Math.abs(a.x - b.x) + Math.abs(a.y - b.y); // sums horizontal and vertical distance, it's a heuristic solution
+}
+
+public ArrayList reconstructPath(TileBloc currentTile){ // uses the ParentTile variable (in TileBlocs) to recreate the whole path we've found
+	ArrayList path = new ArrayList();
+	path.add(currentTile);
+	
+	TileBloc walkingTile = currentTile;                            
+	while(walkingTile.getParentTile() != null){
+		path.add(0, walkingTile.getParentTile());
+		walkingTile = walkingTile.getParentTile();
+	}
+	
+	return path;
+}
+
+public ArrayList getNeighbors(TileBloc tile){
+	ArrayList neighbors = new ArrayList();
+	
+	int[] dx = {-1, 1, 0, 0};
+	int[] dy = {0, 0, -1, 1};
+	
+	for(int i = 0; i < 4; i++){
+		int checkX = tile.getPosX() + dx[i];
+		int checkY = tile.getPosY() + dy[i];
+				
+		if(
+			checkX >= 0 &&
+			checkX < 16 && // 16 equals to the width (in number of tiles) of the game's grid
+			checkY >= 0 &&
+			checkY < 11 && // 1 equals to the height (in number of tiles) of the game's grid
+			blocTiles[checkX][checkY].getIsWalkable()
+		){
+			neighbors.add(blocTiles[checkX][checkY]);
+		}
+	}
+	
+	return neighbors;
+}
+
+public ArrayList findPath(TilePos startPoint, TilePos targetPoint){
+	resetPathfinding();
+	
+	TileBloc startTile = blocTiles[startPoint.x][startPoint.y];
+	TileBloc targetTile = blocTiles[targetPoint.x][targetPoint.y];
+	
+	startTile.setCostFromStart(0);
+	int distance = getDistance(startPoint, targetPoint);
+	startTile.setCostToTarget(distance);
+	
+	ArrayList openSet = new ArrayList(); // create an ArrayList (of TileBlocs) containing the start Tile (startTile)
+	// openSet is a ArrayList containing the Tiles we need to test to find the shortest path
+	// can't limit the type of content an ArrayList contains (like so : <TileBloc>), Tangara doesn't allow it
+		
+	openSet.add(startTile);
+
+	// while there are elements in openSet / while there are Tiles to check/try
+	while(openSet.size() > 0){
+		TileBloc currentTile = (TileBloc) openSet.get(0); // select first element of the ArrayList
+		
+		// compare it to every other element in the ArrayList to find the one with the smallest costToTarget
+		for (int i = 1; i < openSet.size(); i++){
+			TileBloc nextTile = (TileBloc) openSet.get(i); // since we don't type the ArrayList, we have to type every .get() methods used on it
+			if(nextTile.getCostToTarget() < currentTile.getCostToTarget()){
+				currentTile = nextTile;
+			}
+		}
+		
+		// if we've reached the destination, then recontruct the path
+		if(currentTile == targetTile) return reconstructPath(currentTile);
+		
+		openSet.remove(currentTile); // remove the element with the smallest costToTarget from the list of elements to try, since we're gonna try it next
+		
+		double tentativeCost = currentTile.getCostFromStart() + 1;
+		
+		ArrayList neighbors = getNeighbors(currentTile); // get every neighboring Tile to the currentTile
+		
+		for(int i = 0; i < neighbors.size(); i++){
+			TileBloc n = (TileBloc) neighbors.get(i);
+			if(tentativeCost < n.getCostFromStart()){ // if we get further from the start TilePos
+				n.setParentTile(currentTile);
+                n.setCostFromStart(tentativeCost);
+                TilePos nPoint = new TilePos(n.getPosX(), n.getPosY());
+                n.setCostToTarget(tentativeCost + getDistance(nPoint, targetPoint));
+                
+                if(!openSet.contains(n)){
+                	openSet.add(n);
+                }
+			}
+		}
+	}
+	
+	return null;
+}

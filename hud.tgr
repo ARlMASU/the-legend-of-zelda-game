@@ -1,0 +1,265 @@
+//<tangara version="1" encoding="UTF-8">////===========//
+//  CLASSES  //
+//===========//
+
+// HudItem : items like sword, bomb or arrow
+public class HudItem extends Animation{
+	private String spriteName;
+	
+	public HudItem(String sprite, int posX, int posY){
+		super("hud_" + sprite + ".png");
+		
+		this.spriteName = sprite;
+		
+		setObjSmallTilePos(this, posX, posY);
+		
+		this.cacher();
+	}
+	
+	public String getSpriteName(){
+		return this.spriteName;
+	}
+}
+
+public class HeartContainer extends Animation{
+	public static int cptIndex = 0;
+	private int index;
+	private int amountFilled = 2; // 0 = empty, 1 = half, 2 = full
+
+	public HeartContainer(){
+		super();
+		
+		this.index = cptIndex++;
+
+		
+		for(int i = 0; i < 3; i++){
+			this.ajouterImage("hud_heart_" + i + ".png");
+		}
+		
+		this.afficherImage("hud_heart_2.png");
+
+		if(index > 7){
+			setObjSmallTilePos(this, 14 + this.index, 5); // 14 + 8 = 22	
+		}else {
+			setObjSmallTilePos(this, 22 + this.index, 4);
+		}
+
+	}
+
+	public int getAmount(){
+		return this.amountFilled;
+	}
+
+	public void setAmount(int newAmount){
+		if(newAmount < 0 || newAmount > 2) return;
+		this.amountFilled = newAmount;
+		this.afficherImage("hud_heart_" + newAmount + ".png");
+	}
+}
+
+// RupeeCounter : displays the amount of rupees in 2 digits
+public class RupeeCounter{
+	private Animation[] digits = new Animation[2];
+
+	public RupeeCounter(){
+		for(int d = 0; d < 2; d++){
+			Animation digit = new Animation("hud_text_0.png");
+
+			for(int i = 1; i <= 9; i++){
+				digit.ajouterImage("hud_text_" + i + ".png");
+			}
+
+			setObjSmallTilePos(digit, 13 + d, 2);
+
+			this.digits[d] = digit;
+		}
+	}
+
+	public void setValue(int value){
+		String textValue = "" + value;
+
+		if(value < 10){
+			this.digits[0].afficherImage("hud_text_0.png");
+			this.digits[1].afficherImage("hud_text_" + textValue.charAt(0) + ".png");
+		}else{
+			this.digits[0].afficherImage("hud_text_" + textValue.charAt(0) + ".png");
+			this.digits[1].afficherImage("hud_text_" + textValue.charAt(1) + ".png");
+		}
+		
+	}
+}
+
+//=============//
+//  VARIABLES  //
+//=============//
+
+boolean gameIsOver = false;
+
+//=============//
+//  FUNCTIONS  //
+//=============//
+
+// SmallTile = small grid  of 32x32 tiles
+public int getSmallTilePxPos(tilePos){
+	pxPos = tilePos * 32;
+	return pxPos;
+}
+
+public void setObjSmallTilePos(object, tilePosX, tilePosY){
+	object.définirPosition(getSmallTilePxPos(tilePosX), getSmallTilePxPos(tilePosY));
+}
+
+public void triggerGameOver(){
+	if(gameIsOver) return;
+
+	gameIsOver = true;
+
+	startMusicLoopTimer.arrêter();
+	musicLoopTimer.arrêter();
+	soundMusic.arrêter();
+
+	soundGameOver.écouter();
+	gameOver.montrer();
+
+	keyboard.désactiver();
+	
+	deleteEnemyProjectiles();
+	clearSceneItems();
+	clearEnemies();
+}
+
+// hurtHud() : update the HeartContainers when getting hurt
+public void hurtHud(int damage){ // 1 < damage < 20
+	int i = heartContainers.size() - 1;
+	int leftDmg = damage;
+	while(leftDmg > 0 && i >= 0){
+		HeartContainer currentHeart = heartContainers.get(i);
+		switch(currentHeart.getAmount()){
+			case 0 :
+				i--;
+				break;
+			case 1 :
+				currentHeart.setAmount(0);
+				leftDmg--;
+				break;
+			case 2 :
+				if(leftDmg >= 2){
+					currentHeart.setAmount(0);
+					leftDmg -= 2;
+				}else{
+					currentHeart.setAmount(1);
+					leftDmg--;
+				}
+				break;
+		}
+		if(heartContainers.get(0).getAmount() == 0){
+			triggerGameOver();
+		}
+	}
+}
+
+public void hurtLink(int amount){
+	if(gameIsOver || link.getInvincibleState()) return;
+	soundLinkHurt.écouter();
+	link.startHurtTimer(); // start hurt animation
+	hurtHud(amount);
+}
+
+// healLink() : update the HeartContainers when getting healed
+public void healLink(int amount){
+	int leftAmount = amount;
+	for(int i = 0; i < heartContainers.size() && leftAmount > 0; i++){
+		HeartContainer heart = heartContainers.get(i);
+		int missing = 2 - heart.getAmount();
+		if(missing > 0){
+			int healed = Math.min(missing, leftAmount);
+			heart.setAmount(heart.getAmount() + healed);
+			leftAmount -= healed;
+		}
+	}
+}
+
+// healLinkAtFullHealth() : update the HeartContainers when getting healed until Link's fully healed
+public void healLinkAtFullHealth(){
+	boolean notAtFullHealth = heartContainers.get(heartContainers.size()-1).getAmount() < 2;
+	for(int i = 0; i < heartContainers.size() && notAtFullHealth; i++){
+		HeartContainer heart = heartContainers.get(i);
+		int missing = 2 - heart.getAmount();
+		if(missing > 0){
+			int healed = missing;
+			heart.setAmount(heart.getAmount() + healed);
+			notAtFullHealth = heartContainers.get(heartContainers.size()-1).getAmount() < 2;
+		}
+	}
+}
+
+// getHudItem : get the item based on its name
+public getHudItem(String itemName){
+	for(int i = 0; i < hudItems.length; i++){
+		HudItem currentItem = hudItems[i];
+		if(currentItem.getSpriteName() == itemName) return currentItem;  
+	}
+	return null;
+}
+
+public void updateRupeeCounter(){
+	rupeeCounter.setValue(link.getRupees());
+}
+
+public void rupeesCounterAnimStep(){
+	if(displayedRupees < targetRupees){
+		displayedRupees++;
+	}else if (displayedRupees > targetRupees){
+		displayedRupees--;
+	}
+
+	rupeeCounter.setValue(displayedRupees);
+
+	if(displayedRupees == targetRupees){
+		currentlyTakingAnItem = false;
+		rupeesCounterAnimTimer.arrêter();
+	}
+}
+
+public void updateRupeeCounter(int newRupees){
+	targetRupees = newRupees;
+	if(displayedRupees != targetRupees) rupeesCounterAnimTimer.démarrer();
+}
+
+public void addHeartContainer(){
+	if(heartContainers.size() < 16){
+		healLinkAtFullHealth();
+		heartContainers.add(new HeartContainer());
+	}
+}
+
+//=============//
+//  INSTANCES  //
+//=============//
+
+Animation gameOver = new Animation("game_over.png");
+setObjTilePos(gameOver, 0, 0);
+gameOver.cacher();
+
+Animation hudMenu = new Animation("hud_menu.png"); // background of the hud
+
+public Minuteur rupeesCounterAnimTimer = new Minuteur();
+rupeesCounterAnimTimer.définirDélai(12);
+rupeesCounterAnimTimer.ajouterCommande("rupeesCounterAnimStep()");
+
+RupeeCounter rupeeCounter = new RupeeCounter();
+
+displayedRupees = link.getRupees();
+targetRupees = displayedRupees;
+rupeeCounter.setValue(displayedRupees);
+
+HudItem[] hudItems = {
+	 new HudItem("sword", 19, 3),
+	 new HudItem("bow", 16, 3),
+	 new HudItem("bomb", 16, 3) // bow and bomb aren't used yet
+}
+
+ArrayList heartContainers = new ArrayList();
+for(int i = 0; i < 3; i++){
+	heartContainers.add(new HeartContainer());
+}

@@ -1,0 +1,32 @@
+//<tangara version="1" encoding="UTF-8">////=============//
+//  FUNCTIONS  //
+//=============//
+
+public void startMusicLoop(){
+	musicLoopTimer.démarrer();
+	startMusicLoopTimer.arrêter();
+}
+
+//=============//
+//  INSTANCES  //
+//=============//
+
+Son soundEnemyHurt = new Son("sound_enemy_hurt.wav");
+Son soundHeart = new Son("sound_heart.wav");
+Son soundItem = new Son("sound_item.wav");
+Son soundLinkHurt = new Son("sound_link_hurt.wav");
+Son soundRupee = new Son("sound_rupee.wav");
+Son soundRupeesDecreasing = new Son("sound_rupees_decreasing.wav");
+Son soundShieldDeflecting = new Son("sound_shield_deflecting.wav");
+Son soundStairs = new Son("sound_stairs.wav");
+Son soundGameOver = new Son("sound_game_over.wav");
+Son soundMusic = new Son("sound_music.wav");
+
+startMusicLoopTimer = new Minuteur();
+startMusicLoopTimer.définirDélai(70697);
+startMusicLoopTimer.ajouterCommande("startMusicLoop()");
+
+musicLoopTimer = new Minuteur();
+musicLoopTimer.définirPremierDélai(0);
+musicLoopTimer.définirDélai(51122);
+musicLoopTimer.ajouterCommande("soundMusic.écouterDepuis(19575)");

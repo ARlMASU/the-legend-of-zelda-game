@@ -1,0 +1,37 @@
+//<tangara version="1" encoding="UTF-8">////===========//
+//  CLASSES  //
+//===========//
+
+// SceneChangeHitbox : hitboxes on each sides of the playable area to handle changement of Scenes
+public class SceneChangeHitbox extends Animation{		
+	public SceneChangeHitbox(String ori, int posX, int posY){
+		super();
+		
+		this.orientation = ori;
+
+		if(ori == "up" || ori == "down"){
+			this.définirHauteur(64);
+			this.définirLargeur(1024);
+		}else {
+			this.définirHauteur(704);
+			this.définirLargeur(64);
+		}
+
+		setObjTilePos(this, posX, posY);
+	}
+	
+	public String getOrientation(){
+		return this.orientation;
+	}
+}
+
+//=============//
+//  INSTANCES  //
+//=============//
+
+SceneChangeHitbox[] sceneChangeHitboxes = {
+	new SceneChangeHitbox("up", 0, -1),
+	new SceneChangeHitbox("down", 0, 11),
+	new SceneChangeHitbox("left", -1, 0),
+	new SceneChangeHitbox("right", 16, 0)
+};

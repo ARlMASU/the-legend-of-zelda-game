@@ -1,0 +1,183 @@
+//<tangara version="1" encoding="UTF-8">////===========//
+//  CLASSES  //
+//===========//
+
+// SpawnAnimTask : TimerTask used by spawnAnimTimer that runs the corresponding spawnAnim() method of the SceneItem
+public class SpawnAnimTask extends TimerTask{
+    private SceneItem item;
+
+	public SpawnAnimTask(SceneItem item){
+        this.item = item;
+	}
+
+	public void run(){
+		try{
+            item.spawnAnim();
+		}catch(Exception ex){
+			tangara.écrire("error : " + ex);
+		}
+	}
+}
+
+public class SceneItem extends SceneObject{
+    public static int cptId = 0;
+
+    private int id;
+    private String spriteName;
+
+    private boolean isHidden = true;
+
+	private TimerTask spawnAnimTask = null;
+    private int cptSpawnAnim = 0;
+
+	public SceneItem(int x, int y, String spriteName){
+        super(x, y);
+
+		this.anim.ajouterImage("item_" + spriteName + ".png");
+        this.anim.afficherImage("item_" + spriteName + ".png");
+
+        this.spriteName = spriteName;
+
+        this.id = cptId++;
+
+        this.anim.siCollisionAvec(link, "pickUpSceneItem(" + this.id + ")");
+
+        this.spawnAnimStart();
+	}
+
+    // spawnAnim() : used by spawnAnimTask
+    public void spawnAnim(){
+        this.isHidden = !this.isHidden; // inverse isHidden at each iteration of spawnAnim
+
+        if(isHidden){
+            this.anim.cacher();
+        }else{
+            this.anim.montrer();
+        }
+
+        cptSpawnAnim++;
+
+        if(cptSpawnAnim > 12){
+            this.spawnAnimStop();
+        }
+    }
+
+	public void spawnAnimStart(){
+		if(spawnAnimTask != null) return;
+        this.spawnAnimTask = new SpawnAnimTask(this);
+        spawnAnimTimer.schedule(this.spawnAnimTask, 50, 50);
+	}
+	
+	public void spawnAnimStop(){
+        if(this.spawnAnimTask == null) return;
+        this.spawnAnimTask.cancel();
+        this.spawnAnimTask = null;
+        this.cptSpawnAnim = 0;
+        this.isHidden = false;
+        this.anim.montrer();
+    }
+
+    public int getId(){
+        return this.id;
+    }
+
+    public String getSpriteName(){
+        return this.spriteName;
+    }
+
+    public void delete(){
+        int index = sceneItems.indexOf(this);
+		sceneItems.remove(index);
+		this.anim.supprimer();
+    }
+}
+
+// DropRequest : class used to transfert parameters of the SceneItem while it's pending
+public class DropRequest{
+	public String spriteName;
+	public int posX;
+	public int posY;
+	
+	public DropRequest(String sName, int x, int y){
+		this.spriteName = sName;
+		this.posX = x;
+		this.posY = y;
+	}
+}
+
+//=============//
+//  FUNCTIONS  //
+//=============//
+
+public SceneItem getSceneItemFromId(int searchedId){
+	for(int i = 0; i < sceneItems.size(); i++){
+		SceneItem currentItem = sceneItems.get(i);
+		if(currentItem.getId() == searchedId) return currentItem;
+	}
+	return null;
+}
+
+// pickUpSceneItem() : find the item, invokes its corresponding actions, then delete it
+public void pickUpSceneItem(int itemId){
+    SceneItem item = getSceneItemFromId(itemId);
+    if(item == null) return;
+
+    switch(item.getSpriteName()){
+        case "1_rupee":
+            soundRupee.écouter();
+            link.incrementRupees();
+            break;
+        case "5_rupees":
+            soundRupee.écouter();
+            link.incrementRupees(5);
+            break;
+        case "heart":
+            soundHeart.écouter();
+            healLink(2);
+            break;
+    }
+
+    item.delete();
+}
+
+public String getRandomItemName(){
+    int randomPercentage = getRandomInt(0, 99);
+
+    if(randomPercentage < 20){
+        return "5_rupees";
+    }else if(randomPercentage < 50){
+        return "heart";
+    }else if(randomPercentage < 85){
+        return "1_rupee";
+    }else{
+        return "";
+    }
+}
+
+public void dropItemAt(int tileX, int tileY){
+	String itemName = getRandomItemName();
+	if(itemName.equals("")) return;
+	pendingDrops.add(new DropRequest(itemName, tileX, tileY));
+}
+
+public void spawnPendingDrops(){
+	Object drop = pendingDrops.poll();
+	while(drop != null){
+		sceneItems.add(new SceneItem(drop.posX, drop.posY, drop.spriteName));
+		drop = pendingDrops.poll();
+	}
+}
+
+//=============//
+//  INSTANCES  //
+//=============//
+
+java.util.Timer spawnAnimTimer = new java.util.Timer();
+
+java.util.concurrent.ConcurrentLinkedQueue pendingDrops = new java.util.concurrent.ConcurrentLinkedQueue(); // same pending system as the projectiles'
+
+Minuteur dropSpawner = new Minuteur();
+dropSpawner.définirPremierDélai(0);
+dropSpawner.définirDélai(50);
+dropSpawner.ajouterCommande("spawnPendingDrops()");
+dropSpawner.démarrer();

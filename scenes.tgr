@@ -1,0 +1,323 @@
+//<tangara version="1" encoding="UTF-8">////===========//
+//  CLASSES  //
+//===========//
+
+// TileBloc : solid tile, non-collidable, costToTarget and costFromStart are used for pathfindings
+public class TileBloc extends Bloc{
+	private int posX;
+	private int posY;
+	private boolean isWalkable;
+	private double costToTarget = Double.POSITIVE_INFINITY;
+    private double costFromStart = Double.POSITIVE_INFINITY;
+    private TilePos parentTilePos = null;
+	
+	public TileBloc(int x, int y){
+		super();
+		
+		this.posX = x;
+		this.posY = y;
+		
+		setObjTilePos(this, x, y);
+	}
+	
+	public void changeTileImage(int newTileImageIndex){
+		if(newTileImageIndex == 0){
+			setObjTilePos(this, -1, -1);
+			this.isWalkable = true;
+		}else {
+			this.isWalkable = false;
+			this.chargerImage("tile_" + newTileImageIndex + ".png");
+			setObjTilePos(this, this.posX, this.posY);
+			link.ajouterBloc(this);
+		}
+	}
+	
+	public int getPosX(){
+		return this.posX;
+	}
+	
+	public int getPosY(){
+		return this.posY;
+	}
+	
+	public boolean getIsWalkable(){
+		return this.isWalkable;
+	}
+	
+	public void setIsWalkable(boolean newValue){
+		this.isWalkable = newValue;
+	}
+	
+	public double getCostToTarget(){
+		return this.costToTarget;
+	}
+	
+	public void setCostToTarget(double newCostToTarget){
+		this.costToTarget = newCostToTarget;
+	}
+	
+	public double getCostFromStart(){
+		return this.costFromStart;
+	}
+	
+	public void setCostFromStart(double newCostFromStart){
+		this.costFromStart = newCostFromStart;
+	}
+	
+	public TileBloc getParentTile(){
+		if(this.parentTilePos == null) return null;
+		return blocTiles[this.parentTilePos.x][this.parentTilePos.y];
+	}
+	
+	public void setParentTile(TileBloc newParent){
+		if(newParent == null){
+			this.parentTilePos = null;
+		}else {
+			this.parentTilePos = new TilePos(newParent.getPosX(), newParent.getPosY());
+		}
+	}
+}
+
+// Scene : class for the 128 scenes of the game, containing infos for each scenes
+public class Scene{
+	private static int currentId = 1;
+	private int sceneId;
+	private String bgColor;
+	private int sceneChangeUp;
+	private int sceneChangeRight;
+	private int sceneChangeDown;
+	private int sceneChangeLeft;
+	
+	public Scene(int sChUp, int sChRight, int sChDown, int sChLeft){
+		this.sceneId = currentId++;
+		this.bgColor = "beige";
+		this.sceneChangeUp = sChUp;
+		this.sceneChangeRight = sChRight;
+		this.sceneChangeDown = sChDown;
+		this.sceneChangeLeft = sChLeft;
+	}
+	
+	public Scene(int sChUp, int sChRight, int sChDown, int sChLeft, String bgC){
+		this.sceneId = currentId++;
+		this.bgColor = bgC;
+		this.sceneChangeUp = sChUp;
+		this.sceneChangeRight = sChRight;
+		this.sceneChangeDown = sChDown;
+		this.sceneChangeLeft = sChLeft;
+	}
+	
+	public int getId(){
+		return this.sceneId;
+	}
+	
+	public int getSceneChange(String direction){
+		switch(direction){
+			case "up":
+				return this.sceneChangeUp;
+			case "right" :
+				return this.sceneChangeRight;
+			case "down":
+				return this.sceneChangeDown;
+			case "left":
+				return this.sceneChangeLeft;
+			default:
+				tangara.écrire("unvalid sceneChangeDirection");
+				return -1;
+		}
+	}
+	
+	public String getBgColor(){
+		return this.bgColor;
+	}
+}
+
+//=============//
+//  FUNCTIONS  //
+//=============//
+
+// handleTilesDisplay() : displays every TileBloc and TileAnim of the currentScene
+public void handleTilesDisplay(int sceneId){
+	String selectedFgTilemap = foregroundTilemaps[sceneId - 1];
+	
+	for(int y = 0; y < 11; y++){
+		for(int x = 0; x < 16; x++){
+			int fgTileImageIndex = alphabet.indexOf(selectedFgTilemap.charAt(y * 16 + x));
+			blocTiles[x][y].changeTileImage(fgTileImageIndex);
+		}
+	}
+	
+	String selectedMgTilemap = middlegroundTilemaps[sceneId - 1];
+	
+	int currentCharacterPos = 0; // equivalent to a pointer in the String selectedMgTileMap
+	// E.g. when the currentCharacterPos = 0,
+	//  			"777777000..."
+	// it points at: ^ -> the first character of the String
+	
+	if(selectedMgTilemap.length() == 0){
+		for (TileAnim[] rowOfTiles : animTiles) {
+			for (TileAnim tile : rowOfTiles) {
+				tile.changeTileImage(0);
+			}
+		}
+	}else {
+		for(int y = 0; y < 11; y++){
+			if(alphabet.indexOf(selectedMgTilemap.charAt(currentCharacterPos)) == 7){ // meaning we have an empty row
+				for(int x = 0; x < 16; x++){
+					animTiles[x][y].changeTileImage(0);
+				}
+				currentCharacterPos++;
+			}else{
+				for(int x = 0; x < 16; x++){
+					int mgTileImageIndex = alphabet.indexOf(selectedMgTilemap.charAt(currentCharacterPos + x));
+					animTiles[x][y].changeTileImage(mgTileImageIndex);
+				}
+				currentCharacterPos += 16;
+			}
+		}
+	}
+}
+
+//=============//
+//  INSTANCES  //
+//=============//
+
+// blocTiles : array containing every TileBloc of the game, 16 = width of game's grid, 11 = height
+TileBloc[][] blocTiles = new TileBloc[16][11];
+
+for(int y = 0; y < 11; y++){
+	for(int x = 0; x < 16; x++){
+		blocTiles[x][y] = new TileBloc(x, y);
+	}
+}
+
+// scenes : instances of the Scene class
+Scene[] scenes = {
+	new Scene(-1, 2, 17, -1),//1
+	new Scene(-1, 3, 18, 1),//2
+	new Scene(-1, 4, 19, 2),//3
+	new Scene(-1, -1, 20, 3),//4
+	new Scene(-1, 6, -1, -1),//5
+	new Scene(-1, 7, -1, 5),//6
+	new Scene(-1, 8, -1, 6),//7
+	new Scene(-1, 9, 24, 7),//8
+	new Scene(-1, 10, -1, 8),//9
+	new Scene(-1, -1, -1, 9),//10
+	new Scene(-1, -1, 27, -1),//11
+	new Scene(-1, -1, 28, -1),//12
+	new Scene(-1, 14, 29, -1),//13
+	new Scene(-1, -1, 30, 13),//14
+	new Scene(-1, -1, 31, -1),//15
+	new Scene(-1, -1, -1, -1),//16
+	new Scene(1, 18, -1, -1),//17
+	new Scene(2, -1, -1, 17),//18
+	new Scene(3, 20, -1, -1),//19
+	new Scene(4, 21, -1, 20),//20
+	new Scene(-1, 22, 37, 21),//21
+	new Scene(-1, 23, 38, 21),//22
+	new Scene(-1, 24, -1, 22),//23
+	new Scene(8, 25, 40, 23),//24
+	new Scene(-1, 26, -1, 24),//25
+	new Scene(-1, 27, -1, 25),//26
+	new Scene(11, 28, -1, 26),//27
+	new Scene(12, 29, -1, 27),//28
+	new Scene(13, 30, 45, 28),//29
+	new Scene(14, 31, 46, 29),//30
+	new Scene(15, 32, -1, 30),//31
+	new Scene(-1, -1, -1, 31),//32
+	new Scene(-1, 34, 49, -1, "grey"),//33
+	new Scene(-1, -1, 50, 33, "grey"),//34
+	new Scene(-1, -1, 51, -1, "grey"),//35
+	new Scene(-1, 37, 52, -1),//36
+	new Scene(21, 38, -1, 36),//37
+	new Scene(22, 39, 54, 37),//38
+	new Scene(-1, 40, 55, -1),//39
+	new Scene(24, 41, -1, 39),//40
+	new Scene(-1, 42, 57, 40),//41
+	new Scene(-1, 43, -1, 41),//42
+	new Scene(-1, 44, 59, 42),//43
+	new Scene(-1, 45, 60, 43),//44
+	new Scene(29, 46, -1, 44),//45
+	new Scene(30, 47, 62, 45),//46
+	new Scene(-1, -1, 63, 46),//47
+	new Scene(-1, -1, 64, -1, "grey"),//48
+	new Scene(33, 50, 65, -1, "grey"),//49
+	new Scene(34, 51, 66, 49, "grey"),//50
+	new Scene(35, 52, -1, 50),//51
+	new Scene(36, -1, -1, 51),//52
+	new Scene(-1, -1, 69, -1),//53
+	new Scene(38, 55, -1, -1),//54
+	new Scene(39, -1, -1, 54),//55
+	new Scene(-1, 57, -1, -1),//56
+	new Scene(41, -1, 73, 56),//57
+	new Scene(-1, -1, 74, -1),//58
+	new Scene(43, 60, 75, -1),//59
+	new Scene(44, -1, 76, 59),//60
+	new Scene(-1, -1, 77, -1),//61
+	new Scene(46, -1, 78, -1),//62
+	new Scene(47, 64, -1, -1),//63
+	new Scene(48, -1, 80, 63),//64
+	new Scene(49, 66, 81, -1, "grey"),//65
+	new Scene(50, -1, -1, 65, "grey"),//66
+	new Scene(-1, -1, 83, -1),//67
+	new Scene(-1, -1, 84, -1),//68
+	new Scene(53, -1, 85, -1),//69
+	new Scene(-1, -1, 86, -1),//70
+	new Scene(-1, 72, 87, -1),//71
+	new Scene(-1, 73, -1, 71),//72
+	new Scene(57, -1, 89, 72),//73
+	new Scene(58, 75, 90, -1),//74
+	new Scene(59, 76, -1, 74),//75
+	new Scene(60, -1, 92, 75),//76
+	new Scene(61, 78, -1, -1),//77
+	new Scene(62, 79, 94, 77),//78
+	new Scene(-1, -1, -1, 78),//79
+	new Scene(64, -1, 96, -1),//80
+	new Scene(65, -1, 97, -1, "grey"),//81
+	new Scene(-1, 83, 98, -1),//82
+	new Scene(67, 84, 99, 82),//83
+	new Scene(68, 85, 100, 83),//84
+	new Scene(69, 86, 101, 84),//85
+	new Scene(70, 87, 102, 85),//86
+	new Scene(71, 88, -1, 86),//87
+	new Scene(-1, 89, -1, 87),//88
+	new Scene(73, 90, 105, 88),//89
+	new Scene(74, 91, 106, 89),//90
+	new Scene(-1, 92, 107, 90),//91
+	new Scene(76, 93, 108, 91),//92
+	new Scene(-1, 94, 109, 92),//93
+	new Scene(78, 95, 110, 93),//94
+	new Scene(-1, -1, -1, 94),//95
+	new Scene(80, -1, 112, -1),//96
+	new Scene(81, 98, -1, -1),//97
+	new Scene(82, 99, 114, 97),//98
+	new Scene(83, 100, 115, 98),//99
+	new Scene(84, 101, 116, 99),//100
+	new Scene(85, 102, -1, 100),//101
+	new Scene(86, 103, 118, 101),//102
+	new Scene(-1, 104, 119, 102),//103
+	new Scene(-1, 105, 120, 103),//104
+	new Scene(89, 106, 121, 104),//105
+	new Scene(90, 107, -1, 105),//106
+	new Scene(91, 108, -1, 106),//107
+	new Scene(92, 109, 124, 107),//108
+	new Scene(93, 110, -1, 108),//109
+	new Scene(94, 111, -1, 109),//110	
+	new Scene(-1, 112, -1, 110),//111
+	new Scene(96, -1, 128, 111),//112
+	new Scene(-1, 114, -1, -1),//113
+	new Scene(98, 115, -1, 113),//114
+	new Scene(99, 116, -1, 114),//115
+	new Scene(100, 117, -1, 115),//116
+	new Scene(-1, -1, -1, 116),//117
+	new Scene(102, 119, -1, -1),//118
+	new Scene(103, 120, -1, 118),//119
+	new Scene(104, 121, -1, 119),//120
+	new Scene(105, 122, -1, 120),//121
+	new Scene(-1, 123, -1, 121),//122
+	new Scene(-1, 124, -1, 122),//123
+	new Scene(108, 125, -1, 123),//124
+	new Scene(-1, 126, -1, 124),//125
+	new Scene(-1, 127, -1, 125),//126
+	new Scene(-1, 128, -1, 126),//127
+	new Scene(112, -1, -1, 127),//128
+};

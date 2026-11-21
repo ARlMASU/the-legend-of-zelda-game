@@ -1,0 +1,280 @@
+//<tangara version="1" encoding="UTF-8">////===========//
+//  CLASSES  //
+//===========//
+
+// TilePos() : utilitary function indicating a point on the 2d grid of the game (64x64 tiles)
+public class TilePos{
+	public int x;
+	public int y;
+	
+	public TilePos(int x, int y){
+		this.x = x;
+		this.y = y;
+	}
+}
+
+//=============//
+//  VARIABLES  //
+//=============//
+
+// directions & oppositeDirections : utilitary variables used in fors
+public String[] directions = {"up", "right", "down", "left"};
+public String[] oppositeDirections = {"down", "left", "up", "right"};
+
+public boolean keyboardDisabled = false;
+
+public String sceneChangeDirection = "";
+public int currentSceneId = 1;
+public ArrayList currentSceneEnemies = new ArrayList();
+ArrayList sceneItems = new ArrayList();
+
+public int shotSuccessRate;
+
+public int caveId;
+public boolean inCave = false;
+public int currentCaveEntrancePosX;
+public int currentCaveEntrancePosY;
+
+public int displayedRupees;
+public int targetRupees;
+
+//=============//
+//  FUNCTIONS  //
+//=============//
+
+//---------//
+//  UTILS  //
+//---------//
+
+public int roundToNearestMultiple(int number, int nearest) {
+    return (int) Math.round((float) number / nearest) * nearest;
+}
+
+public String getOppositeOrientation(String orientation){
+	for(int i = 0; i < 4; i++){
+		if(directions[i].equals(orientation)){
+			return oppositeDirections[i];
+		}
+	}
+	return "";
+}
+
+public boolean checkCollision(int aTopLeftPosX, int aTopLeftPosY, int aWidth, int aHeight, int bTopLeftPosX, int bTopLeftPosY, int bWidth, int bHeight){
+	int aBottomRightPosX = aTopLeftPosX + aWidth;
+	int aBottomRightPosY = aTopLeftPosY + aHeight;
+	int bBottomRightPosX = bTopLeftPosX + bWidth;
+	int bBottomRightPosY = bTopLeftPosY + bHeight;
+
+	if (
+		aTopLeftPosX < bBottomRightPosX && aBottomRightPosX > bTopLeftPosX &&
+		aTopLeftPosY < bBottomRightPosY && aBottomRightPosY > bTopLeftPosY
+	) return true;
+	
+	return false;
+}
+
+public int getRandomInt(int min, int max){
+	return min + (int)(Math.random() * (max - min + 1));
+}
+
+public boolean rollPercentage(int percentage){
+	int randomValue = getRandomInt(0, 99);
+		
+	return randomValue < percentage ? true : false;
+}
+
+public void updateShotSuccessRate(){
+	shotSuccessRate = (int) Math.round(68.5 * Math.exp(-0.78 * currentSceneEnemies.size()) + 40);
+	// more enemies -> fewer shots
+}
+
+// getPxPos() : get the real position of an object through its grid-related position
+public getPxPos(tilePos){
+	pxPos = tilePos * 64;
+	return pxPos;
+}
+
+// getTilePos() : get the grid-related position of an object through its real position 
+public getTilePos(pxPos){
+	tilePos = pxPos / 64;
+	return tilePos;
+}
+
+// setObjTilePos : position an object based on its grid position
+public void setObjTilePos(object, tilePosX, tilePosY){
+	object.définirPosition(getPxPos(tilePosX), getPxPos(tilePosY) + 224);
+}
+
+// setObjPos : position an object based on its real position
+public void setObjPos(object, posX, posY){
+	object.définirPosition(posX, posY);
+}
+
+//----------//
+//  OTHERS  //
+//----------//
+
+public void changeBgColor(String color){
+	bg.afficherImage("bg_" + color + ".png");
+}
+
+public void deleteEnemyProjectiles(){
+	for(int i = enemyProjectiles.size() - 1; enemyProjectiles.size() > 0; i--){
+		enemyProjectiles.get(i).delete();
+	}
+	enemyProjectiles.clear();
+	EnemyProj.resetCptId();
+	pendingShots.clear();
+}
+
+public void clearSceneItems(){
+	for(int i = sceneItems.size() - 1; i >= 0; i--){
+		sceneItems.get(i).delete();
+	}
+}
+
+public void clearEnemies(){
+	for(i = 0; i < currentSceneEnemies.size(); i++){
+		currentSceneEnemies.get(i).hide();
+	}
+	currentSceneEnemies.clear();
+}
+
+// loadScene() : after the changeScene, it sets everything back to default and display everything that needs
+// to be displayed (items, tiles, bg, enemies, caves, ...)
+public void loadScene(int newSceneId){
+	if(newSceneId == -1) return;
+			
+	newScene = scenes[newSceneId-1];
+	currentSceneId = newSceneId;
+		
+	newSceneBgColorPath = "bg_" + newScene.getBgColor() + ".png";
+	
+	if(newSceneBgColorPath != bg.récupérerNomImage()){
+		bg.afficherImage(newSceneBgColorPath);
+	}
+	
+	link.supprimerBlocs();
+	handleTilesDisplay(newSceneId);
+			
+	for(SceneObject obj : objectsPerScene[newSceneId-1]){
+		obj.setDefaultPos();
+		obj.show();
+	}
+			
+	updateShotSuccessRate();
+	
+	enemyTimer.schedule(new EnemiesUpdateTilesWalkability(), 450, 500);
+
+	link.updatePos();
+}
+
+// changeScene() : before loadScene, it resets everything that needs to be reset (SceneItems, Enemies, Projectiles, ...)
+public void changeScene(String dir){
+	sceneChangeDirection = dir;
+	
+	clearSceneItems();
+	
+	clearEnemies();
+
+	deleteEnemyProjectiles();
+	
+	// if the player is in a cave and leaved it, redirect to the .hide() method of the currentCave to reset it
+	if(inCave){
+		inCave = false;
+		
+		caves[caveId-1].hide();
+		
+		loadScene(currentSceneId);
+		setObjTilePos(link, currentCaveEntrancePosX, currentCaveEntrancePosY + 0.5);
+		link.descendre(32);
+	}else{		
+		for(SceneObject obj : objectsPerScene[currentSceneId-1]){
+			obj.hide();
+		}
+	
+		loadScene(scenes[currentSceneId-1].getSceneChange(dir));
+	}
+}
+
+// spawnProj() : spawn some projectiles, just for debug
+public void spawnProj(){
+	for(int i = 0; i < 11; i++){
+		pendingShots.add(new ShotRequest("octopus", 0, i, "right", 1));
+	}
+}
+
+//=============//
+//  INSTANCES  //
+//=============//
+
+// frame
+frame = new Cadre();
+
+frame.définirLargeur(1024);
+frame.définirHauteur(928);
+
+// define title
+tangara.définirTitre("The Legend of Zelda");
+
+// background : beige, grey or black solid background
+bg = new Animation();
+bg.ajouterImage("bg_beige.png");
+bg.ajouterImage("bg_grey.png");
+bg.ajouterImage("bg_black.png");
+
+setObjTilePos(bg, 0, 0);
+
+// imports
+tangara.chargerProgramme("sounds.tgr");
+tangara.chargerProgramme("tilemaps.tgr");
+tangara.chargerProgramme("animation_tiles.tgr");
+tangara.chargerProgramme("scenes.tgr");
+tangara.chargerProgramme("pathfinding.tgr");
+tangara.chargerProgramme("scene_change_hitboxes.tgr");
+tangara.chargerProgramme("projectiles.tgr");
+tangara.chargerProgramme("objects.tgr");
+tangara.chargerProgramme("link.tgr");
+tangara.chargerProgramme("hud.tgr");
+tangara.chargerProgramme("items.tgr");
+tangara.chargerProgramme("caves.tgr");
+
+setObjTilePos(link, 4, 3);
+
+// load the first scene of the game :
+loadScene(120);
+
+// start the music after the game is loaded :
+startMusicLoopTimer.démarrer();
+soundMusic.écouter();
+
+// hurtBtn, spawnBtn, spawnItemBtn are debug buttons
+hurtBtn = new Bouton("hurt");
+hurtBtn.ajouterCommande("hurtLink(2)");
+hurtBtn.définirLargeur(128);
+hurtBtn.définirHauteur(64);
+hurtBtn.définirPosition(1028,224);
+
+healBtn = new Bouton("heal");
+healBtn.ajouterCommande("healLink(2)");
+healBtn.définirLargeur(128);
+healBtn.définirHauteur(64);
+healBtn.définirPosition(1028,288);
+
+spawnBtn = new Bouton("spawn projectiles");
+spawnBtn.ajouterCommande("spawnProj()");
+spawnBtn.définirLargeur(128);
+spawnBtn.définirHauteur(64);
+spawnBtn.définirPosition(1028,352);
+
+spawnItemBtn = new Bouton("spawn rupees");
+spawnItemBtn.ajouterCommande("sceneItems.add(new SceneItem(5, 6, #"5_rupees#"))");
+spawnItemBtn.définirLargeur(128);
+spawnItemBtn.définirHauteur(64);
+spawnItemBtn.définirPosition(1028,416);
+
+spawnItemBtn = new Bouton("knockback");
+spawnItemBtn.ajouterCommande("link.knockback(#"right#")");
+spawnItemBtn.définirLargeur(128);
+spawnItemBtn.définirHauteur(64);
+spawnItemBtn.définirPosition(1028,480);

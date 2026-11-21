@@ -1,0 +1,1418 @@
+//<tangara version="1" encoding="UTF-8">////===========//
+//  CLASSES  //
+//===========//
+
+// SceneObject : base object that will be extended by Enemy and CaveEntrance classes
+public class SceneObject{
+	protected int posX;
+	protected int posY;
+	
+	public Promeneur anim;
+
+	public SceneObject(int x, int y){
+		this.anim = new Promeneur();
+		
+		this.posX = x;
+		this.posY = y;
+		setObjTilePos(this.anim, x, y);
+	}
+	
+	public int getPosX(){
+		return this.posX;
+	}
+	
+	public int getPosY(){
+		return this.posY;
+	}
+	
+	public void setDefaultPos(){
+		setObjTilePos(this.anim, this.posX, this.posY);
+	}	
+	
+	public void setPos(int x, int y){
+		this.posX = x;
+		this.posY = y;
+	}
+}
+
+// EnemiesUpdateTilesWalkability : TimerTask is a class that runs through a java Timer, it is executed every x ms
+// this specific class updates whether a Tile is walkable or not, based on Enemies positions
+public class EnemiesUpdateTilesWalkability extends TimerTask{
+	private ArrayList changedTiles = new ArrayList();
+	
+	// run() : default function of TimerTask that gets executed through the Timer
+	public void run(){
+		try{
+			for(int a = 0; a < changedTiles.size(); a++){
+				this.changedTiles.get(a).setIsWalkable(true);
+			}
+			this.changedTiles.clear();
+			
+			ArrayList enemies = currentSceneEnemies;
+			if(enemies.size() < 2){
+				this.cancel();
+				return;
+			}
+					
+			for(int i = 0; i < enemies.size(); i++){
+				Enemy e = enemies.get(i);
+				
+				TileBloc currentTile = blocTiles[e.getMovePosX()][e.getMovePosY()];
+				
+				if(!currentTile.getIsWalkable()) return; // if false, stop here
+			
+				currentTile.setIsWalkable(false);
+				
+				this.changedTiles.add(currentTile);
+			}
+		}catch(Exception ex){
+			tangara.écrire("error : " + ex);
+		}
+	}
+}
+
+// EnemyTask : TimerTask that gets executed through animStart(), moveStart(), hurtStart(), killStart() and executes the corresponding method of the enemy
+public class EnemyTask extends TimerTask{
+	private Enemy enemy;
+	private String action;
+
+	public EnemyTask(Enemy en, String act){
+		this.enemy = en;
+		this.action = act;
+	}
+
+	public void run(){
+		try{
+			switch(this.action){
+				case "anim":
+					this.enemy.animStep();
+					break;
+				case "move":
+					this.enemy.moveStep();
+					break;
+				case "hurt":
+					this.enemy.hurtStep();
+					break;
+				case "kill":
+					this.enemy.killStep();
+			}
+		}
+		catch(Exception ex){
+			tangara.écrire("error : " +  ex);
+		}
+	}
+}
+
+// Enemy : 
+public class Enemy extends SceneObject{
+	// Enemy's parameters :
+	private String spriteName;
+	private int numberOfSprites;
+	private int health; // starting health
+	private int projectileDamage;
+	private int contactDamage;
+
+	// movePos is the position of the enemy that gets updated each tile it walks, posX and Y stay static to be able to reset the position
+	private int movePosX = this.posX;
+	private int movePosY = this.posY;
+
+	private String orientation = "down";
+
+	private TimerTask animTask = null;
+	private int cptAnim = 1;
+	
+	private TimerTask moveTask = null;
+	private int random = getRandomInt(500, 1250); // random is used to define the speed of the enemy (how frequently it moves)
+	
+	private TimerTask hurtTask = null;
+	private String hurtState = ""; // String used to determine the path of the spriteName
+	private int cptHurtState = 1; // count of the hurt animation (1->4)
+	private int hurtStateIterationCount = 0; // how many times the hurt animation played completely
+	private boolean invincible = false; // cooldown of invincibility after getting hit
+	private int healthPoints; // current health
+	
+	private TimerTask killTask = null;
+	private int cptKillAnim = 1; // count of the kill animation (1->4)
+	
+	private boolean active = false; // : is the enemy displayed and should be doing any action ?
+	
+	public Enemy(int x, int y, String sprtName, int nbrOfSprites, int hp, int projDmg, int contactDmg){
+		super(x, y);
+						
+		this.spriteName = sprtName;
+		this.numberOfSprites = nbrOfSprites;
+		this.health = hp;
+		this.healthPoints = hp;
+		this.projectileDamage = projDmg;
+		this.contactDamage = contactDmg;
+		
+		//this.anim.afficherZoneCollision(true);
+				
+		for(int i = 1; i <= this.numberOfSprites; i++){
+			for(String dir : directions){
+				this.anim.ajouterImage(this.spriteName + "_" + dir + "_" + i + ".png");
+				for(int a = 1; a <= 3; a++){
+					this.anim.ajouterImage(this.spriteName + "_hurt_" + a + "_" + dir + "_" + i + ".png");
+				}
+			}
+		}
+		
+		for(int i = 1; i <= 4; i++){
+			this.anim.ajouterImage("enemy_death_" + i + ".png");
+		}
+				
+		this.anim.afficherImage(spriteName + "_down_1.png");
+		this.anim.cacher();
+	}
+
+	public int getMovePosX(){
+		return this.movePosX;
+	}
+	
+	public int getMovePosY(){
+		return this.movePosY;
+	}
+	
+	public void setMovePos(int newPosX, int newPosY){
+		this.movePosX = newPosX;
+		this.movePosY = newPosY;
+	}
+
+	// resetToDefaultPos() : uses the posX and Y to reset movePosX and Y
+	public void resetToDefaultPos(){
+		this.movePosX = this.posX;
+		this.movePosY = this.posY;
+	}
+
+	// animStep() and moveStep() : functions that get invoked by the EnemyTimer every x ms
+	public void animStep(){
+		if(!this.active || this.invincible || this.orientation.equals("")) return;
+		// stop if the enemy shouldn't be doing anything
+		// stop if it's getting hit
+		// stop if it has no orientation
+		
+		this.anim.afficherImage(this.spriteName + this.hurtState + "_" + this.orientation + "_" + this.cptAnim + ".png");
+		this.cptAnim++;
+		
+		if(this.cptAnim > this.numberOfSprites){
+			this.cptAnim = 1;
+		}
+	}
+	
+	public void moveStep(){
+		if(!this.active) return;
+		if(this.invincible) return; // don't move if it's getting hit
+			
+		TilePos startPos = new TilePos(this.movePosX, this.movePosY);
+		TilePos targetPos = new TilePos(link.getPosX(), link.getPosY());
+		
+		// if the Enemy is aligned with Link on the x or y axis, shoot
+		if(startPos.x == targetPos.x || startPos.y == targetPos.y){
+			int dx = targetPos.x - startPos.x;
+			int dy = targetPos.y - startPos.y;
+					
+			String shootOrientation = "";
+			
+			if(dx > 0){
+				shootOrientation = "right";
+			}else if(dx < 0){
+				shootOrientation = "left";
+			}else if(dy > 0){
+				shootOrientation = "down";
+			}else if(dy < 0){
+				shootOrientation = "up";
+			}
+			
+			if(!shootOrientation.equals("")){
+				this.shoot(shootOrientation);
+			}
+			return;
+		}
+
+		// otherwise, find the path to get to Link
+				
+		ArrayList path = findPath(startPos, targetPos); // findPath from pathfinding.tgr,
+		// returning an ArrayList of every tiles the Enemy needs to pass by to get to Link
+				
+		// stop if findPath didn't return a correct path, or if there's only a distance of 1 between Enemy and Link
+		// (first and last elements of path are the current positions of the Enemy and Link)
+		if(path == null || path.size() < 2){
+			return;
+		}
+		
+		TileBloc goToTilePos = (TileBloc) path.get(1); // : move to the "first" tile of the path
+		
+		// distance on the x & y axis between the tile we need to go to and the current Enemy position :
+		int dx = goToTilePos.getPosX() - this.movePosX;
+		int dy = goToTilePos.getPosY() - this.movePosY;
+				
+		String goToOrientation = "";
+		
+		if(dx > 0){
+			goToOrientation = "right";
+		}else if(dx < 0){
+			goToOrientation = "left";
+		}else if(dy > 0){
+			goToOrientation = "down";
+		}else if(dy < 0){
+			goToOrientation = "up";
+		}
+		
+		if(!goToOrientation.equals("")){
+			this.move(goToOrientation); // uses the Enemy's move() method to move to the chosen tile
+			this.setMovePos(goToTilePos.getPosX(), goToTilePos.getPosY()); // update MovePosX & y to the new position
+		}
+	}
+
+	public void hurtStep(){
+		if(!this.active) return;
+
+		if(this.cptHurtState == 0){
+			this.hurtState = "";
+		}else{
+			this.hurtState = "_hurt_" + this.cptHurtState;
+		}
+		
+		this.anim.afficherImage(this.spriteName + this.hurtState + "_" + this.orientation + "_" + this.cptAnim + ".png");
+		
+		this.cptHurtState++;
+		
+		if(this.cptHurtState > 3){
+			this.cptHurtState = 0;
+			this.hurtStateIterationCount++;
+		}
+		if(this.hurtStateIterationCount > 3){
+			this.hurtStop();
+		}
+	}
+	
+	public void killStep(){
+		if(this.cptKillAnim > 4){
+			this.killStop();
+			return;	
+		}
+		
+		this.anim.afficherImage("enemy_death_" + this.cptKillAnim + ".png");
+		
+		this.cptKillAnim++;
+	}
+	
+	public void animStart(){
+		if(this.animTask != null) return;
+
+		this.animTask = new EnemyTask(this, "anim"); // creates the TimerTask
+		enemyTimer.schedule(this.animTask, this.random, this.random); // asign it to the enemyTimer, using the random delay of the Enemy
+	}
+	
+	public void animStop(){
+		if(this.animTask == null) return;
+
+		this.animTask.cancel(); // cancel the TimerTask, stopping it's use in the enemyTimer
+		this.animTask = null; // set it to null
+	}
+	
+	public void moveStart(){
+		if(this.moveTask != null) return;
+
+		this.moveTask = new EnemyTask(this, "move");
+		enemyTimer.schedule(this.moveTask, this.random, this.random);
+	}
+	
+	public void moveStop(){
+		if(this.moveTask == null) return;
+
+		this.moveTask.cancel();
+		this.moveTask = null;
+	}
+	
+	public void hurtStart(){
+		if(this.hurtTask != null) return;
+
+		this.hurtTask = new EnemyTask(this, "hurt");
+		enemyHurtTimer.schedule(this.hurtTask, 50, 50);
+	}
+	
+	public void hurtStop(){
+		if(this.hurtTask == null) return;
+
+		this.hurtTask.cancel();
+		this.hurtTask = null;
+		this.invincible = false;
+		this.cptHurtState = 1;
+		this.hurtStateIterationCount = 0;
+		this.hurtState = "";
+		this.anim.afficherImage(this.spriteName + "_" + this.orientation + "_" + this.cptAnim + ".png");
+	}
+
+	public void resetHurtState(){
+		// if there's a hurtTask currently running, delete it :
+		if(this.hurtTask != null){
+			this.hurtTask.cancel();
+			this.hurtTask = null;
+		}
+
+		this.invincible = false;
+		this.cptHurtState = 1;
+		this.hurtStateIterationCount = 0;
+		this.hurtState = "";
+	}
+	
+	public void killStart(){
+		if(this.killTask != null) return;
+		this.active = false;
+
+		soundEnemyHurt.écouter();
+
+		// stop every other TimerTask before starting the kill animation
+		this.animStop();
+		this.moveStop();
+		this.hurtStop();
+
+		this.killTask = new EnemyTask(this, "kill");
+		enemyHurtTimer.schedule(this.killTask, 50, 50);
+	}
+	
+	public void killStop(){
+		if(this.killTask == null) return;
+
+		this.killTask.cancel();
+		this.killTask = null;
+		this.cptKillAnim = 1;
+		this.healthPoints = this.health;
+
+		dropItemAt(this.movePosX, this.movePosY); // from items.tgr
+
+		this.hide();
+		this.anim.afficherImage(this.spriteName + "_" + this.orientation + "_" + this.cptAnim + ".png");
+	}
+	
+	public void show(){
+		this.active = true;
+		this.healthPoints = this.health;
+
+		this.resetToDefaultPos();
+		this.anim.montrer();
+
+		currentSceneEnemies.add(this);
+
+		this.moveStart();
+		this.animStart();
+	}
+	
+	public void hide(){
+		this.active = false;
+
+		this.anim.arrêter();
+		this.anim.cacher();
+
+		this.resetHurtState();
+
+		this.moveStop();
+		this.animStop();
+
+		this.movePosX = this.posX;
+		this.movePosY = this.posY;
+		setObjTilePos(this.anim, -3, -3);
+	}
+	
+	// move() : move 1 tile in any direction, whether updating the orientation of the Enemy or not
+	// (we don't update the position when giving the Enemy a knockback)
+	public void move(String orientation, boolean updateOrientation){
+		if(updateOrientation) this.orientation = orientation;
+		
+		switch(orientation){
+			case "up":
+				this.anim.monter(64);
+				break;
+			case "right":
+				this.anim.avancer(64);
+				break;
+			case "down":
+				this.anim.descendre(64);
+				break;
+			case "left":
+				this.anim.reculer(64);
+				break;
+		}
+	}
+
+	public void move(String orientation){
+		this.orientation = orientation;
+
+		switch(orientation){
+			case "up":
+				this.anim.monter(64);
+				break;
+			case "right":
+				this.anim.avancer(64);
+				break;
+			case "down":
+				this.anim.descendre(64);
+				break;
+			case "left":
+				this.anim.reculer(64);
+				break;
+		}
+	}
+	
+	// shoot() : creates a projectile and gives it a position and orientation
+	public void shoot(String orientation){
+		this.orientation = orientation;
+				
+		// from zelda.tgr, returns true or false, based on the percentage of a shot to succeed (which varies based on the number of Enemies)
+		if(!rollPercentage(shotSuccessRate)){
+			return;
+		}
+				
+		int projPosX;
+		int projPosY;
+		
+		int enemyPosX =	this.getMovePosX();
+		int enemyPosY =	this.getMovePosY();
+		
+		switch(orientation){
+			case "left":
+				projPosX = enemyPosX - 1;
+				projPosY = enemyPosY;
+				break;
+			case "right":
+				projPosX = enemyPosX + 1;
+				projPosY = enemyPosY;
+				break;
+			case "up":
+				projPosX = enemyPosX;
+				projPosY = enemyPosY - 1;
+				break;
+			case "down":
+				projPosX = enemyPosX;
+				projPosY = enemyPosY + 1;
+				break;
+		}
+				
+		String projSprite = this.spriteName.equals("octopus") ? this.spriteName : this.spriteName + "_" + orientation;
+		// the octopus sprite doesn't have direction-specific sprites for its projectiles
+		pendingShots.add(new ShotRequest(projSprite, projPosX, projPosY, orientation, this.projectileDamage));
+		// from projectiles.tgr, adds a ShotRequest at the pendingShots with the projectile's parameters
+	}
+	
+	public void hurt(String linkOrientation){
+		if(this.invincible) return; // if it's invincible, don't hurt the Enemy
+
+		this.healthPoints--;
+				
+		if(this.healthPoints <= 0) {
+			this.killStart();
+			return;
+		}
+
+		soundEnemyHurt.écouter();
+
+		this.invincible = true;
+		this.hurtStart(); // starts invoking the hurtStep() method every x ms
+		this.knockback(linkOrientation); // knockback based on Link's orientation
+	}
+	
+	public void knockback(String orientation){
+		if(orientation == null) return;
+
+		int stepX = 0;
+		int stepY = 0;
+		switch(orientation){
+			case "up":  
+				stepY = -1;
+				break;
+			case "right":
+				stepX = 1;
+				break;
+			case "down":
+				stepY = 1;
+				break;
+			case "left":
+				stepX = -1;
+				break;
+			default:
+				return;
+		}
+
+		// which tile to check :
+		int checkTilePosX = this.movePosX;
+		int checkTilePosY = this.movePosY;
+		
+		int tilesAvailability = 0; // how many tiles are avaialable (meaning they are walkable) : 0, 1 or 2
+
+		for(int i = 0; i < 2; i++){
+			int nextX = checkTilePosX + stepX;
+			int nextY = checkTilePosY + stepY;
+
+			if(nextX < 0 || nextX > 15 || nextY < 0 || nextY > 10) break;   // stop if the checked tile is outside the grid (16x11)
+			if(!blocTiles[nextX][nextY].getIsWalkable()) break;             // stop if the checked tile is unwalkable
+
+			checkTilePosX = nextX;
+			checkTilePosY = nextY;
+			tilesAvailability++;
+		}
+
+		if(tilesAvailability > 0){
+			this.setMovePos(checkTilePosX, checkTilePosY);
+
+			this.anim.arrêter();
+
+			// round the Enemy's position before giving the knockback, in cases where the Enemy is between tiles
+			int roundedX = roundToNearestMultiple(this.anim.récupérerCoordonnéeX(), 64);
+			int roundedY = roundToNearestMultiple(this.anim.récupérerCoordonnéeY() - 224, 64) + 224;
+
+			setObjPos(this.anim, roundedX, roundedY);
+
+			this.anim.définirVitesse(100); // go faster during knockback
+			this.move(orientation, false); // don't update orientation when moving the Enemy
+			if(tilesAvailability > 1) this.move(orientation, false); // move again if at least a second tile is available
+			this.anim.définirVitesse(50); // reset speed to default
+		}
+	}
+}
+
+// CaveEntrance : black tiles used by Link to get to Caves
+public class CaveEntrance extends SceneObject{
+	private int caveId;
+	
+	public CaveEntrance(int x, int y, int cId){
+		super(x, y);
+		
+		this.caveId = cId;
+				
+		this.anim.définirRectangleCollision(0, 0, 64, 16); // collision happens only on the top part of the sprite
+		
+		this.anim.ajouterImage("cave_entrance.png");
+		this.anim.afficherImage("cave_entrance.png");
+		this.anim.cacher();
+	}
+	
+	public int getCaveId(){
+		return this.caveId;
+	}
+	
+	public void show(){
+		this.anim.montrer();
+		String caveInfos = "#"" + this.posX + "#",#"" + this.posY + "#",#"" + this.caveId + "#"";
+		link.siCollisionAvec(this.anim, "goToCave(" + caveInfos + ")"); 
+	}
+	
+	public void hide(){
+		this.anim.cacher();
+	}
+}
+
+// Octopus & Moblin : extends Enemy and gives it certain values as paremeters (strength of Enemy, health, ...)
+public class Octopus extends Enemy{
+	public Octopus(int positionX, int positionY){
+		super(positionX, positionY, "octopus", 2, 2, 1, 1);
+	}
+}
+
+public class Moblin extends Enemy{
+	public Moblin(int positionX, int positionY){
+		super(positionX, positionY, "moblin", 1, 3, 2, 1);
+	}
+}
+
+//=============//
+//  INSTANCES  //
+//=============//
+
+java.util.Timer enemyTimer = new java.util.Timer(); // used by moveStart() and animStart()
+java.util.Timer enemyHurtTimer = new java.util.Timer(); // used by hurtStart() and killStart()
+
+// objectsPerScene : creates enemies for each scenes
+SceneObject[][] objectsPerScene = {
+	{
+	},//1
+	{
+		new Moblin(8, 6),
+		new Octopus(3, 5),
+		new Moblin(10, 7),
+		new Moblin(13, 8),
+	},//2
+	{
+		new Octopus(8, 5),
+		new Octopus(12, 5),
+		new Octopus(10, 3),
+		new Octopus(3, 7),
+	},//3
+	{
+		new Octopus(10, 5),
+		new Octopus(6, 5),
+		new Moblin(3, 6),
+	},//4
+	{
+		new CaveEntrance(12, 1, 1),
+		new Moblin(3, 5),
+		new Octopus(9, 6),
+		new Octopus(1, 6),
+		new Octopus(12, 6),
+	},//5
+	{
+		new Moblin(6, 3),
+		new Octopus(8, 4),
+		new Octopus(13, 7),
+		new Octopus(3, 2),
+	},//6
+	{
+		new Octopus(6, 4),
+		new Moblin(8, 7),
+		new Moblin(4, 3),
+		new Octopus(4, 7),
+	},//7
+	{
+		new Moblin(4, 7),
+		new Moblin(8, 4),
+		new Octopus(3, 5),
+	},//8
+	{
+		new Moblin(8, 4),
+		new Moblin(5, 6),
+		new Octopus(5, 3),
+	},//9
+	{
+		new Moblin(5, 8),
+		new Moblin(6, 4),
+		new Octopus(12, 3),
+		new Moblin(2, 3),
+		new Moblin(12, 8),
+	},//10
+	{
+		new CaveEntrance(2, 1, 2),
+		new Moblin(8, 7),
+		new Octopus(5, 2),
+		new Moblin(13, 6),
+		new Octopus(1, 5),
+	},//11
+	{
+		new CaveEntrance(7, 4, 3),
+		new Moblin(8, 7),
+		new Octopus(2, 6),
+		new Octopus(8, 2),
+		new Moblin(11, 3),
+	},//12
+	{
+		new CaveEntrance(8, 1, 4),
+		new Moblin(7, 4),
+		new Octopus(12, 5),
+		new Octopus(11, 3),
+	},//13
+	{
+		new Octopus(8, 7),
+		new Moblin(11, 4),
+		new Octopus(11, 7),
+		new Moblin(9, 3),
+		new Moblin(5, 7),
+	},//14
+	{
+	},//15
+	{
+		new CaveEntrance(8, 4, 6),
+		new Octopus(13, 2),
+		new Moblin(4, 2),
+		new Octopus(12, 7),
+		new Octopus(7, 6),
+	},//16
+	{
+		new Octopus(5, 4),
+		new Moblin(7, 3),
+		new Moblin(9, 4),
+		new Octopus(12, 8),
+	},//17
+	{
+		new Moblin(7, 8),
+		new Moblin(12, 2),
+		new Octopus(13, 5),
+		new Octopus(4, 7),
+	},//18
+	{
+		new Octopus(12, 8),
+		new Moblin(4, 6),
+		new Moblin(12, 2),
+		new Moblin(7, 3),
+		new Octopus(7, 7),
+	},//19
+	{
+		new Octopus(2, 4),
+		new Octopus(8, 5),
+		new Moblin(6, 7),
+		new Octopus(12, 6),
+	},//20
+	{
+		new Octopus(5, 5),
+		new Octopus(12, 1),
+		new Octopus(10, 7),
+		new Moblin(3, 8),
+		new Octopus(10, 4),
+	},//21
+	{
+		new Moblin(13, 2),
+		new Octopus(5, 7),
+		new Octopus(12, 4),
+		new Moblin(10, 6),
+		new Octopus(3, 6),
+	},//22
+	{
+		new Octopus(3, 8),
+		new Octopus(9, 5),
+		new Moblin(7, 6),
+		new Octopus(3, 5),
+		new Octopus(5, 7),
+	},//23
+	{
+		new Moblin(9, 5),
+		new Moblin(7, 6),
+		new Octopus(11, 6),
+		new Moblin(12, 8),
+	},//24
+	{
+		new Octopus(4, 8),
+		new Moblin(5, 5),
+		new Moblin(12, 6),
+	},//25
+	{
+		new Moblin(6, 5),
+		new Octopus(9, 5),
+	},//26
+	{
+		new Octopus(14, 8),
+		new Octopus(8, 6),
+		new Octopus(13, 6),
+	},//27
+	{
+		new Octopus(8, 3),
+		new Octopus(10, 8),
+		new Octopus(10, 2),
+		new Octopus(2, 7),
+	},//28
+	{
+		new Octopus(9, 7),
+		new Octopus(3, 2),
+		new Octopus(6, 4),
+		new Octopus(6, 8),
+		new Octopus(9, 3),
+	},//29
+	{
+		new Moblin(4, 3),
+		new Octopus(4, 6),
+		new Moblin(3, 8),
+	},//30
+	{
+		new Octopus(10, 2),
+		new Moblin(7, 5),
+		new Moblin(11, 7),
+		new Moblin(11, 4),
+	},//31
+	{
+		new CaveEntrance(6, 4, 7),
+		new Octopus(9, 8),
+		new Octopus(9, 3),
+		new Octopus(7, 6),
+		new Octopus(4, 2),
+		new Octopus(11, 5),
+	},//32
+	{
+		new Octopus(8, 5),
+		new Moblin(5, 3),
+		new Octopus(2, 5),
+		new Octopus(11, 6),
+		new Octopus(12, 2),
+	},//33
+	{
+		new Octopus(3, 2),
+		new Octopus(12, 4),
+		new Octopus(10, 6),
+		new Octopus(5, 7),
+		new Moblin(4, 4),
+	},//34
+	{
+		new CaveEntrance(7, 4, 8),
+		new CaveEntrance(8, 4, 8),
+		new Moblin(13, 3),
+		new Octopus(5, 7),
+		new Octopus(13, 6),
+		new Octopus(2, 4),
+	},//35
+	{
+		new Moblin(3, 8),
+		new Moblin(1, 7),
+		new Octopus(3, 3),
+		new Moblin(4, 5),
+	},//36
+	{
+		new Octopus(8, 8),
+		new Octopus(11, 6),
+		new Moblin(5, 5),
+		new Moblin(11, 3),
+		new Moblin(8, 5),
+	},//37
+	{
+		new CaveEntrance(10, 1, 9),
+		new Moblin(10, 5),
+		new Octopus(7, 8),
+		new Octopus(12, 3),
+		new Moblin(3, 4),
+		new Octopus(6, 5),
+	},//38
+	{
+		new Octopus(4, 8),
+		new Moblin(3, 3),
+		new Moblin(5, 4),
+	},//39
+	{
+		new Moblin(7, 3),
+		new Octopus(12, 4),
+	},//40
+	{
+		new Octopus(10, 2),
+		new Octopus(8, 7),
+		new Octopus(9, 4),
+		new Moblin(7, 3),
+	},//41
+	{
+		new Octopus(9, 3),
+		new Octopus(3, 7),
+		new Octopus(8, 7),
+		new Octopus(6, 4),
+		new Octopus(10, 8),
+	},//42
+	{
+		new Moblin(11, 7),
+		new Moblin(4, 6),
+		new Octopus(8, 4),
+		new Octopus(11, 3),
+		new Moblin(4, 2),
+	},//43
+	{
+		new Octopus(9, 2),
+		new Octopus(3, 4),
+		new Octopus(3, 7),
+		new Octopus(11, 5),
+		new Moblin(10, 7),
+	},//44
+	{
+		new Octopus(10, 2),
+		new Octopus(9, 7),
+		new Octopus(5, 3),
+		new Moblin(6, 7),
+	},//45
+	{
+		new Moblin(3, 7),
+		new Octopus(11, 7),
+		new Moblin(8, 3),
+		new Moblin(5, 2),
+		new Moblin(6, 5),
+	},//46
+	{
+		new Octopus(5, 6),
+		new Octopus(3, 5),
+		new Octopus(8, 6),
+		new Moblin(2, 8),
+	},//47
+	{
+		new CaveEntrance(6, 4, 10),
+		new Moblin(4, 8),
+		new Moblin(1, 3),
+		new Octopus(12, 6),
+		new Octopus(8, 5),
+	},//48
+	{
+		new Octopus(11, 4),
+		new Octopus(3, 4),
+		new Octopus(8, 3),
+		new Octopus(7, 6),
+		new Octopus(6, 4),
+	},//49
+	{
+		new Octopus(5, 7),
+		new Octopus(13, 3),
+		new Moblin(7, 5),
+		new Octopus(12, 6),
+		new Moblin(9, 6),
+	},//50
+	{
+		new Octopus(6, 5),
+		new Moblin(12, 4),
+		new Moblin(11, 8),
+		new Moblin(8, 6),
+	},//51
+	{
+		new Octopus(3, 3),
+		new Octopus(5, 4),
+		new Moblin(6, 7),
+		new Octopus(8, 4),
+		new Moblin(12, 6),
+	},//52
+	{
+		new Octopus(2, 2),
+		new Octopus(9, 5),
+		new Moblin(3, 8),
+		new Octopus(12, 3),
+		new Moblin(10, 2),
+	},//53
+	{
+		new Octopus(5, 5),
+		new Octopus(9, 4),
+	},//54
+	{
+		new Octopus(7, 4),
+		new Moblin(2, 3),
+	},//55
+	{
+		new CaveEntrance(7, 4, 11),
+		new Moblin(11, 2),
+		new Moblin(13, 4),
+		new Octopus(5, 2),
+	},//56
+	{
+		new Moblin(13, 8),
+		new Moblin(9, 8),
+		new Octopus(7, 7),
+		new Moblin(9, 2),
+	},//57
+	{
+		new Octopus(13, 3),
+		new Moblin(10, 8),
+		new Moblin(14, 5),
+		new Moblin(3, 7),
+	},//58
+	{
+		new Moblin(11, 4),
+		new Moblin(4, 4),
+		new Moblin(6, 8),
+		new Octopus(7, 4),
+		new Moblin(8, 7),
+	},//59
+	{
+		new Moblin(8, 4),
+		new Moblin(7, 8),
+		new Octopus(5, 6),
+		new Octopus(10, 3),
+		new Octopus(10, 6),
+	},//60
+	{
+		new CaveEntrance(7, 4, 12),
+		new Moblin(10, 4),
+		new Octopus(13, 7),
+		new Moblin(5, 7),
+		new Moblin(1, 5),
+	},//61
+	{
+		new Octopus(9, 6),
+		new Octopus(12, 4),
+		new Octopus(11, 8),
+		new Octopus(4, 6),
+		new Octopus(14, 7),
+	},//62
+	{
+		new Octopus(6, 3),
+		new Octopus(6, 6),
+		new Octopus(3, 5),
+		new Moblin(12, 8),
+	},//63
+	{
+		new Moblin(8, 6),
+		new Octopus(6, 4),
+		new Moblin(4, 5),
+		new Moblin(5, 7),
+	},//64
+	{
+		new Octopus(12, 6),
+		new Octopus(8, 8),
+		new Moblin(2, 3),
+		new Octopus(3, 6),
+		new Octopus(5, 5),
+	},//65
+	{
+		new Moblin(5, 7),
+		new Octopus(11, 5),
+		new Moblin(3, 4),
+		new Octopus(10, 8),
+		new Octopus(8, 3),
+	},//66
+	{
+		new Octopus(6, 5),
+		new Moblin(14, 4),
+		new Moblin(10, 7),
+		new Octopus(12, 2),
+	},//67
+	{
+		new Moblin(7, 2),
+		new Octopus(2, 8),
+		new Moblin(2, 3),
+		new Octopus(7, 7),
+	},//68
+	{
+		new CaveEntrance(4, 1, 13),
+		new Octopus(3, 7),
+		new Moblin(1, 6),
+		new Octopus(6, 3),
+	},//69
+	{
+		new CaveEntrance(8, 4, 14),
+		new Octopus(5, 6),
+		new Octopus(10, 3),
+		new Octopus(2, 4),
+		new Moblin(11, 7),
+	},//70
+	{
+		new Octopus(7, 7),
+		new Moblin(12, 5),
+	},//71
+	{
+		new Moblin(9, 6),
+		new Moblin(5, 6),
+	},//72
+	{
+		new Octopus(10, 8),
+		new Moblin(8, 3),
+		new Moblin(10, 5),
+		new Moblin(12, 4),
+	},//73
+	{
+		new Moblin(9, 6),
+		new Octopus(8, 4),
+		new Octopus(3, 6),
+		new Moblin(11, 4),
+		new Moblin(2, 4),
+	},//74
+	{
+		new CaveEntrance(11, 1, 15),
+		new Moblin(10, 3),
+		new Octopus(13, 3),
+		new Octopus(6, 8),
+		new Octopus(8, 6),
+	},//75
+	{
+		new Moblin(4, 2),
+		new Octopus(4, 7),
+		new Moblin(6, 8),
+		new Moblin(7, 4),
+		new Octopus(2, 3),
+	},//76
+	{
+		new Moblin(12, 4),
+		new Moblin(4, 5),
+		new Octopus(10, 7),
+		new Octopus(3, 2),
+		new Moblin(7, 7),
+	},//77
+	{
+		new Moblin(11, 2),
+		new Moblin(3, 6),
+		new Octopus(6, 4),
+		new Octopus(3, 3),
+		new Octopus(12, 6),
+	},//78
+	{
+		new Moblin(6, 5),
+		new Moblin(9, 6),
+		new Moblin(4, 2),
+		new Octopus(8, 3),
+	},//79
+	{
+		new Octopus(6, 3),
+		new Octopus(4, 7),
+		new Octopus(5, 5),
+		new Octopus(8, 6),
+	},//80
+	{
+		new Octopus(4, 7),
+		new Octopus(10, 5),
+		new Octopus(7, 5),
+		new Moblin(14, 7),
+		new Moblin(12, 6),
+	},//81
+	{
+		new Octopus(12, 4),
+		new Moblin(7, 2),
+		new Octopus(2, 3),
+		new Moblin(6, 4),
+	},//82
+	{
+		new Moblin(3, 4),
+		new Octopus(3, 7),
+		new Octopus(7, 8),
+	},//83
+	{
+		new Octopus(4, 4),
+		new Octopus(6, 7),
+		new Octopus(10, 4),
+		new Moblin(8, 6),
+		new Moblin(8, 3),
+	},//84
+	{
+		new Octopus(13, 6),
+		new Moblin(9, 5),
+		new Octopus(6, 8),
+		new Moblin(2, 8),
+		new Moblin(8, 7),
+	},//85
+	{
+		new Octopus(10, 7),
+		new Moblin(11, 5),
+		new Moblin(7, 7),
+	},//86
+	{
+		new Moblin(12, 8),
+		new Octopus(5, 6),
+		new Octopus(9, 2),
+		new Octopus(4, 8),
+	},//87
+	{
+		new Octopus(5, 4),
+		new Octopus(10, 5),
+		new Octopus(7, 6),
+		new Octopus(7, 2),
+	},//88
+	{
+		new Moblin(12, 7),
+		new Octopus(9, 6),
+		new Octopus(8, 4),
+		new Moblin(5, 6),
+		new Octopus(13, 2),
+	},//89
+	{
+		new Moblin(6, 5),
+		new Moblin(10, 5),
+		new Octopus(8, 6),
+	},//90
+	{
+		new Moblin(10, 3),
+		new Moblin(3, 4),
+		new Octopus(7, 2),
+		new Moblin(12, 4),
+	},//91
+	{
+		new Octopus(11, 2),
+		new Octopus(10, 6),
+		new Octopus(12, 7),
+		new Octopus(4, 3),
+		new Octopus(3, 7),
+	},//92
+	{
+		new Moblin(3, 2),
+		new Octopus(6, 2),
+	},//93
+	{
+		new Octopus(4, 4),
+		new Octopus(7, 4),
+		new Octopus(12, 6),
+		new Moblin(5, 6),
+	},//94
+	{
+		new CaveEntrance(7, 1, 16),
+		new Moblin(6, 6),
+		new Octopus(9, 4),
+		new Octopus(2, 3),
+		new Moblin(12, 5),
+		new Octopus(14, 3),
+	},//95
+	{
+		new Octopus(4, 3),
+		new Octopus(2, 6),
+		new Moblin(8, 7),
+	},//96
+	{
+		new Octopus(2, 7),
+		new Octopus(13, 3),
+		new Octopus(12, 6),
+		new Octopus(6, 4),
+		new Moblin(10, 8),
+	},//97
+	{
+		new Octopus(5, 4),
+		new Octopus(12, 4),
+		new Moblin(9, 5),
+	},//98
+	{
+		new Octopus(6, 3),
+		new Moblin(4, 6),
+		new Moblin(10, 4),
+		new Moblin(7, 7),
+	},//99
+	{
+		new Octopus(11, 5),
+		new Moblin(4, 3),
+		new Octopus(9, 4),
+		new Moblin(5, 8),
+		new Octopus(2, 8),
+	},//100
+	{
+		new CaveEntrance(7, 1, 17),
+		new Octopus(4, 4),
+		new Octopus(3, 8),
+		new Moblin(9, 4),
+		new Moblin(8, 8),
+		new Moblin(12, 5),
+	},//101
+	{
+		new Octopus(8, 5),
+		new Octopus(4, 6),
+		new Octopus(8, 8),
+		new Octopus(10, 6),
+		new Octopus(3, 8),
+	},//102
+	{
+		new CaveEntrance(7, 1, 18),
+		new Moblin(7, 6),
+		new Moblin(12, 3),
+		new Octopus(6, 4),
+		new Moblin(3, 6),
+		new Moblin(4, 8),
+	},//103
+	{
+		new Octopus(8, 2),
+		new Octopus(6, 5),
+		new Octopus(4, 8),
+		new Octopus(10, 6),
+	},//104
+	{
+		new Moblin(12, 3),
+		new Octopus(12, 6),
+		new Octopus(6, 7),
+		new Moblin(2, 8),
+		new Octopus(10, 4),
+	},//105
+	{
+		new Octopus(3, 6),
+		new Octopus(3, 3),
+		new Moblin(5, 2),
+		new Octopus(6, 6),
+	},//106
+	{
+		new Octopus(12, 8),
+		new Moblin(3, 8),
+		new Octopus(10, 5),
+		new Moblin(8, 3),
+		new Octopus(6, 5),
+	},//107
+	{
+		new Moblin(3, 3),
+		new Octopus(8, 8),
+		new Octopus(10, 6),
+		new Moblin(8, 3),
+		new Moblin(6, 7),
+	},//108
+	{
+		new Moblin(8, 3),
+		new Moblin(8, 8),
+		new Moblin(12, 6),
+		new Moblin(9, 5),
+	},//109
+	{
+		new Octopus(3, 8),
+		new Octopus(6, 2),
+		new Moblin(12, 4),
+		new Octopus(10, 2),
+	},//110
+	{
+		new Moblin(11, 5),
+		new Octopus(5, 8),
+		new Moblin(9, 4),
+		new Moblin(4, 6),
+	},//111
+	{
+		new CaveEntrance(3, 1, 19),
+		new Moblin(5, 6),
+		new Octopus(7, 5),
+		new Octopus(8, 7),
+		new Octopus(5, 3),
+	},//112
+	{
+		new CaveEntrance(11, 1, 20),
+		new Moblin(8, 2),
+		new Octopus(4, 6),
+		new Moblin(8, 6),
+		new Octopus(6, 8),
+	},//113
+	{
+		new Octopus(12, 3),
+		new Octopus(12, 7),
+		new Moblin(9, 8),
+		new Octopus(3, 2),
+		new Octopus(4, 8),
+	},//114
+	{
+		new Moblin(11, 8),
+		new Moblin(2, 7),
+		new Octopus(5, 8),
+	},//115
+	{
+		new Moblin(7, 4),
+		new Moblin(11, 3),
+		new Octopus(8, 8),
+		new Moblin(13, 8),
+		new Octopus(6, 2),
+	},//116
+	{
+		new CaveEntrance(8, 4, 21),
+		new Octopus(12, 4),
+		new Octopus(10, 2),
+		new Octopus(4, 5),
+		new Octopus(7, 2),
+	},//117
+	{
+		new CaveEntrance(2, 1, 22),
+		new Moblin(12, 6),
+		new Octopus(10, 5),
+		new Octopus(9, 8),
+		new Octopus(7, 7),
+	},//118
+	{
+		new Octopus(5, 7),
+		new Octopus(7, 5),
+		new Octopus(9, 6),
+		new Octopus(6, 3),
+		new Octopus(9, 3),
+	},//119
+	{
+		new CaveEntrance(4, 1, 23),
+	},//120
+	{
+		new Octopus(2, 2),
+		new Moblin(4, 3),
+		new Moblin(12, 8),
+		new Octopus(9, 8),
+		new Octopus(6, 4),
+	},//121
+	{
+		new Moblin(11, 3),
+		new Octopus(11, 6),
+		new Moblin(9, 5),
+		new Moblin(3, 8),
+		new Octopus(6, 3),
+	},//122
+	{
+		new Moblin(5, 3),
+		new Octopus(3, 5),
+		new Moblin(9, 4),
+	},//123
+	{
+		new Octopus(10, 2),
+		new Octopus(7, 3),
+		new Octopus(4, 5),
+	},//124
+	{
+		new Moblin(12, 5),
+		new Moblin(4, 4),
+		new Moblin(12, 2),
+	},//125
+	{
+		new Octopus(4, 5),
+		new Octopus(9, 4),
+		new Moblin(7, 5),
+		new Moblin(12, 4),
+	},//126
+	{
+		new Octopus(6, 5),
+		new Moblin(12, 4),
+		new Moblin(9, 4),
+	},//127
+	{
+		new Octopus(6, 4),
+		new Octopus(8, 3),
+	}//128
+};

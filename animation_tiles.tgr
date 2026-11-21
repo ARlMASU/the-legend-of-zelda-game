@@ -1,0 +1,45 @@
+//<tangara version="1" encoding="UTF-8">////===========//
+//  CLASSES  //
+//===========//
+
+// TileAnim : middleground tiles with no collision (for ladders etc.)
+public class TileAnim extends Animation{
+	private int posX;
+	private int posY;
+	
+	public TileAnim(int x, int y){
+		super();
+		
+		this.posX = x;
+		this.posY = y;
+		
+		setObjTilePos(this, x, y);
+		
+		for(int i = 1; i <= 6; i++){
+			this.ajouterImage("mg_tile_" + i + ".png");
+		}
+		
+		this.cacher();
+	}
+	
+	public void changeTileImage(int newTileImageIndex){
+		if(newTileImageIndex == 0){
+			this.cacher();
+		}else {
+			this.afficherImage("mg_tile_" + newTileImageIndex + ".png");
+			this.montrer();
+		}
+	}
+}
+
+//=============//
+//  INSTANCES  //
+//=============//
+
+TileAnim[][] animTiles = new TileAnim[16][11];
+
+for(int y = 0; y < 11; y++){
+	for(int x = 0; x < 16; x++){
+		animTiles[x][y] = new TileAnim(x, y);
+	}
+}

@@ -1,0 +1,192 @@
+//<tangara version="1" encoding="UTF-8">////===========//
+//  CLASSES  //
+//===========//
+
+// Projectile : base projectile
+public class Projectile extends Animation{
+	private int posX;
+	private int posY;
+	
+	public Animation anim;
+	
+	public Projectile(String spriteName, int x, int y){
+		super();
+		
+		this.définirHauteur(32);
+		this.définirLargeur(32);
+		
+		this.posX = x;
+		this.posY = y;
+		
+		this.anim = new Animation("projectile_" + spriteName + ".png");
+		
+		setObjTilePos(this.anim, x, y);
+		setObjTilePos(this, x + 0.25, y + 0.25);
+	}
+	
+	public int getPosX(){
+		return this.posX;
+	}
+	
+	public int getPosY(){
+		return this.posY;
+	}
+}
+
+// EnemyProj : projectiles of enemies, giving it an orientation it follows until hitting Link or the SceneChangeHitboxes
+public class EnemyProj extends Projectile{
+	public static int cptId = 0;
+	private int id;
+	private String orientation;
+	private int damage;
+	
+	public EnemyProj(String spriteName, int posX, int posY, String orientation, int damage){
+		super(spriteName, posX, posY);
+				
+		this.id = cptId++;
+		this.orientation = orientation;
+		this.damage = damage;
+		
+		this.définirVitesse(35);
+		this.anim.définirVitesse(35);
+		
+		switch(orientation){
+			case "up":
+				this.monterToujours();
+				this.anim.monterToujours();
+				break;
+			case "right":
+				this.avancerToujours();
+				this.anim.avancerToujours();
+				break;
+			case "down":
+				this.descendreToujours();
+				this.anim.descendreToujours();
+				break;
+			case "left":
+				this.reculerToujours();
+				this.anim.reculerToujours();
+				break;
+			default:
+				tangara.écrire("unvalid direction");
+				break;
+		}
+				
+		for(SceneChangeHitbox hitbox : sceneChangeHitboxes){
+			this.siCollisionAvec(hitbox, "deleteProjectile(" + this.id + ")");
+		}
+				
+		link.siCollisionAvec(this, "handleProjCollision(" + this.id + ")");
+		
+	}
+	
+	public static void resetCptId(){
+		cptId = 0;
+	}
+	
+	public void setId(int newId){
+		this.id = newId;
+	}
+	
+	public int getId(){
+		return this.id;
+	}
+	
+	public void setDamage(int newDamageValue){
+		this.damage = newDamageValue;
+	}
+	
+	public int getDamage(){
+		return this.damage;
+	}
+	
+	public String getOrientation(){
+		return this.orientation;
+	}
+	
+	public void delete(){
+		int index = enemyProjectiles.indexOf(this);
+		if(index < 0) return; // stop if enemyProjectiles is empty and returned a wrong index, meaning the projectile doesn't exist
+		enemyProjectiles.remove(index);
+		this.supprimer();
+		this.anim.supprimer();
+	}
+}
+
+// ShotRequest : containing infos of a projectile for the pendingShots
+public class ShotRequest{
+	public String spriteName;
+	public int posX;
+	public int posY;
+	public String orientation;
+	public int damage;
+	
+	public ShotRequest(String sName, int x, int y, String orient, int dmg){
+		this.spriteName = sName;
+		this.posX = x;
+		this.posY = y;
+		this.orientation = orient;
+		this.damage = dmg;
+	}
+}
+
+//=============//
+//  FUNCTIONS  //
+//=============//
+
+public getProjFromId(int searchedId){ // cant give a type to the function, idk why
+	for(int i = 0; i < enemyProjectiles.size(); i++){
+		EnemyProj currentProj = enemyProjectiles.get(i);
+		if(currentProj.getId() == searchedId) return currentProj;
+	}
+	return null;
+}
+
+// deleteProjectile : deletes a specific projectile
+public void deleteProjectile(int projId){
+	EnemyProj proj = getProjFromId(projId);
+	proj.delete();
+}
+
+// handleProjCollision : handles collision of projectile with Link
+public void handleProjCollision(int projId){
+	EnemyProj proj = getProjFromId(projId);
+	
+	boolean deflected = getOppositeOrientation(proj.getOrientation()).equals(link.getOrientation());
+
+	if(deflected){
+		soundShieldDeflecting.écouter();
+	}else {
+		link.knockback(proj.getOrientation());
+		hurtLink(proj.getDamage());
+	}
+	
+	proj.delete();
+}
+
+//=============//
+//  INSTANCES  //
+//=============//
+
+ArrayList enemyProjectiles = new ArrayList();
+
+java.util.concurrent.ConcurrentLinkedQueue pendingShots = new java.util.concurrent.ConcurrentLinkedQueue();
+// This whole pendingShots system was needed because of thread problems :
+// We're using the java Timer Class (java.util.Timer) which runs on a different thread than Tangara itself (when creating elements, etc.).
+// We ask Tangara to create an element (EnemyProj) through java.util.Timer in Enemy.shoot(),
+// which creates a conflit of threads (between Tangara and Java), thus not creating the object properly. 
+
+// spawnPendingProjectiles() : creates every projectile from pendingShots
+public void spawnPendingProjectiles(){
+	shot = pendingShots.poll(); // get last element of pendingShots and remove it
+	while(shot != null){ // while there are pending shots
+		enemyProjectiles.add(new EnemyProj(shot.spriteName, shot.posX, shot.posY, shot.orientation, shot.damage));
+		shot = pendingShots.poll();
+	}
+}
+
+Minuteur projectileSpawner = new Minuteur();
+projectileSpawner.définirPremierDélai(0);
+projectileSpawner.définirDélai(50);
+projectileSpawner.ajouterCommande("spawnPendingProjectiles()");
+projectileSpawner.démarrer();

@@ -1,0 +1,420 @@
+//<tangara version="1" encoding="UTF-8">////===========//
+//  CLASSES  //
+//===========//
+
+public class Link extends Promeneur{
+	private int speed = 16; // in number of pixels
+	private String orientation = "down";
+	private String lastOrientation = "";
+
+	private int rupees = 50;
+	
+	private String action = "";
+	
+	private int cptAnim = 1;
+	private int cptAttackAnim = 1;
+	private int cptCaveEntranceAnim = 1;
+	
+	private int cptHurtState = 1;
+	private int hurtStateIterationCount = 0;
+	private String hurtState = "";
+	private Minuteur hurtTimer = new Minuteur();
+	private boolean invincible = false;
+
+	private Minuteur moveTimer = new Minuteur();
+	private Minuteur animTimer = new Minuteur();
+	private Minuteur attackAnimTimer = new Minuteur();
+	private Minuteur caveEntranceAnimTimer = new Minuteur();
+
+	private Animation sword = new Animation("link_attack_down_sword_2.png");
+	private Animation swordHitbox = new Animation();
+
+	public Link(){
+		super("link_down_1.png");
+
+		for(String direction : directions){
+			for(int i = 1; i <= 2; i++){
+				this.ajouterImage("link_" + direction + "_" + i + ".png");
+				for(int a = 1; a <= 3; a++){
+					this.ajouterImage("link_hurt_" + a + "_" + direction + "_" + i + ".png");
+				}
+			}
+			for(int i = 1; i <= 4; i++){
+				this.ajouterImage("link_attack_" + direction + "_body_" + i + ".png");
+				this.sword.ajouterImage("link_attack_" + direction + "_sword_" + i + ".png");
+				for(int a = 1; a <= 3; a++){
+					this.ajouterImage("link_hurt_" + a + "_attack_" + direction + "_body_" + i + ".png");
+				}
+			}
+		}
+
+		for(int i = 1; i <= 7; i++){
+			this.ajouterImage("link_cave_entrance_" + i + ".png");
+		}
+		
+		this.moveTimer.définirPremierDélai(0);
+		this.moveTimer.définirDélai(50);
+		this.moveTimer.ajouterCommande("link.movePos()");
+
+		this.animTimer.définirPremierDélai(0);
+		this.animTimer.définirDélai(150);
+		this.animTimer.ajouterCommande("link.animate()");
+
+		this.attackAnimTimer.définirPremierDélai(75);
+		this.attackAnimTimer.définirDélai(100);
+		this.attackAnimTimer.ajouterCommande("link.animateAttack()");
+
+		this.caveEntranceAnimTimer.définirPremierDélai(0);
+		this.caveEntranceAnimTimer.définirDélai(100);
+		this.caveEntranceAnimTimer.ajouterCommande("link.animateCaveEntrance()");
+		
+		this.hurtTimer.définirPremierDélai(0);
+		this.hurtTimer.définirDélai(50);
+		this.hurtTimer.ajouterCommande("link.changeHurtState()");
+
+		for(SceneChangeHitbox s : sceneChangeHitboxes){
+			this.siCollisionAvec(s, "changeScene(#"" + s.getOrientation() + "#")");
+		}
+		
+		//swordHitbox.afficherZoneCollision(true);
+		//sword.afficherZoneCollision(true);
+
+		setObjTilePos(this.sword, -1, -1);
+		setObjTilePos(this.swordHitbox, -1, -1);
+		this.sword.cacher();
+		this.swordHitbox.cacher();
+	}
+	
+	public int getPosX(){
+		return getTilePos(this.récupérerCoordonnéeX());
+	}
+	
+	public int getPosY(){
+		return getTilePos(this.récupérerCoordonnéeY() - 224);
+	}
+	
+	public String getOrientation(){
+		return this.orientation;
+	}
+
+	public int getRupees(){
+		return this.rupees;
+	}
+
+	public void setRupees(int newValue){
+		this.rupees = Math.min(newValue, 99);
+		updateRupeeCounter(this.rupees);
+	}
+
+	public void incrementRupees(){
+		this.rupees++;
+		if(this.rupees > 99){
+			this.rupees = 99;
+			return;
+		}
+		updateRupeeCounter(this.rupees);
+	}
+
+	public void incrementRupees(int increaseAmount){
+		this.rupees += increaseAmount;
+		if(this.rupees > 99) this.rupees = 99;
+		updateRupeeCounter(this.rupees);
+	}
+	
+	public void setSwordHitboxSize(int width, int height){
+		this.swordHitbox.définirLargeur(width);
+		this.swordHitbox.définirHauteur(height);
+	}
+
+	// setSwordPos() : sets the sword's and its hitbox's positions based on Link's position
+	public void setSwordPos(){
+		int linkPosX = this.récupérerCoordonnéeX(); // actual position, not grid position, in case Link is between tiles	
+		int linkPosY = this.récupérerCoordonnéeY(); // actual position, not grid position, in case Link is between tiles
+
+		switch(this.orientation){
+			case "up":
+				setObjPos(this.sword, linkPosX, linkPosY - 64);
+				setObjPos(this.swordHitbox, linkPosX + 16, linkPosY - 48);
+				setSwordHitboxSize(32, 48);
+				break;
+			case "right":
+				setObjPos(this.sword, linkPosX + 64, linkPosY);
+				setObjPos(this.swordHitbox, linkPosX + 64, linkPosY + 16);
+				setSwordHitboxSize(48, 32);
+				break;	
+			case "down":
+				setObjPos(this.sword, linkPosX, linkPosY + 64);
+				setObjPos(this.swordHitbox, linkPosX + 16, linkPosY + 64);
+				setSwordHitboxSize(32, 48);
+				break;
+			case "left":
+				setObjPos(this.sword, linkPosX - 64, linkPosY);
+				setObjPos(this.swordHitbox, linkPosX - 48, linkPosY + 16);
+				setSwordHitboxSize(48, 32);
+				break;
+			default:
+				tangara.écrire("unhandled direction");
+				break;
+		}
+	}
+	
+	public void movePos(){
+		// if we change of orientation
+		if(!this.orientation.equals(this.lastOrientation)){
+			this.arrêter(); // stops the current animation (avancer, reculer, monter, descendre), to avoid sliding on the gound
+			int tilePosX = roundToNearestMultiple(this.récupérerCoordonnéeX(), 16);
+			int tilePosY = roundToNearestMultiple(this.récupérerCoordonnéeY() -224, 16); // 224 = hud height, substract it from the rounding then adding it back
+			this.définirPosition(tilePosX, tilePosY + 224); // snap Link's position to a 16x16 grid, to make it easier for the player to go through small gaps (1 tile wide)
+		}
+		
+		switch(this.orientation){
+			case "up":
+				this.monter(this.speed);
+				break;
+			case "right":
+				this.avancer(this.speed);
+				break;
+			case "down":
+				this.descendre(this.speed);
+				break;
+			case "left":
+				this.reculer(this.speed);
+				break;
+			default:
+				tangara.écrire("unhandled direction");
+				break;
+		}
+
+		this.lastOrientation = this.orientation;
+	}
+
+	// animate() : used by animTimer, sets Link's sprite when walking
+	public void animate(){
+		this.afficherImage("link" + this.hurtState + "_" + this.orientation + "_" + this.cptAnim + ".png");
+					
+		this.cptAnim++;
+		
+		if(this.cptAnim > 2){
+			this.cptAnim = 1;
+		}
+	}
+
+	// animateAttack() : used by attackAnimTimer, sets Link's and its sword's sprites
+	public void animateAttack(){
+		int cptAttack = this.cptAttackAnim;
+		
+		if(cptAttack == 1){
+			this.setSwordPos(); // set sword's position only at the first frame of the animation
+		}
+		
+		this.afficherImage("link" + this.hurtState + "_attack_" + this.orientation + "_body_" + cptAttack + ".png");
+		this.sword.afficherImage("link_attack_" + this.orientation + "_sword_" + cptAttack + ".png");
+
+		this.sword.montrer();
+		this.swordHitbox.montrer();
+		
+		// handle collision of sword with Enemies
+		for(Enemy e : currentSceneEnemies){
+			if(
+				checkCollision(
+					this.swordHitbox.récupérerCoordonnéeX(), this.swordHitbox.récupérerCoordonnéeY(),
+					this.swordHitbox.récupérerLargeur(), this.swordHitbox.récupérerHauteur(),
+					e.anim.récupérerCoordonnéeX(), e.anim.récupérerCoordonnéeY(),
+					64, 64
+				)
+			){
+				e.hurt(this.orientation);
+			}
+		}
+				
+		this.cptAttackAnim++;
+
+		if(this.cptAttackAnim > 4){
+			this.cptAttackAnim = 1;
+			this.action = "";
+			this.attackAnimTimer.arrêter();
+			keyboardDisabled = false;
+
+			this.sword.cacher();
+			this.swordHitbox.cacher();
+
+			setObjTilePos(this.sword, -1, -1);
+			setObjTilePos(this.swordHitbox, -1, -1);
+		}
+	}
+
+	// animateCaveEntrance() : used by caveEntranceAnimTimer(), handles Link's animation when entering a Cave
+	public void animateCaveEntrance(){
+		if(this.cptCaveEntranceAnim > 7){
+			this.cptCaveEntranceAnim = 1;
+			this.cacher();
+			this.action = "";
+			this.caveEntranceAnimTimer.arrêter();
+			loadCave(caveId);
+			return;
+		}
+		
+		this.afficherImage("link_cave_entrance_" + this.cptCaveEntranceAnim + ".png");
+		
+		this.cptCaveEntranceAnim++;
+	}
+
+	// updatePos() : update Link's position when changing scenes
+	public void updatePos(){
+		int linkPosX = this.getPosX();
+		int linkPosY = this.getPosY();
+		
+		switch(sceneChangeDirection){
+			case "up":
+				setObjTilePos(this, linkPosX, 10);
+				break;	
+			case "right":
+				setObjTilePos(this, 0, linkPosY);
+				break;
+			case "down":
+				setObjTilePos(this, linkPosX, 0);
+				break;
+			case "left":
+				setObjTilePos(this, 15, linkPosY);
+				break;
+			default:
+				tangara.écrire("unvalid direction");
+				break;
+		}
+	}
+	
+	public void startCaveEntranceAnimTimer(){
+		this.moveTimer.arrêter();
+		this.animTimer.arrêter();
+		this.action = "cave";
+		this.caveEntranceAnimTimer.démarrer();
+	}
+
+	// onKeyDown() : used by the keyboard, keys are Z, Q, S and D
+	public void onKeyDown(String newOrientation){
+		if(keyboardDisabled) return;
+		this.orientation = newOrientation;
+		this.action = "walk";
+		this.moveTimer.démarrer();
+		this.animTimer.démarrer();
+	}
+
+	// onKeyDown() : used by the keyboard
+	public void onKeyUp(){
+		this.cptAnim = 2;
+		this.moveTimer.arrêter();
+		this.animTimer.arrêter();
+		this.action = "";
+	}
+
+	// onKeyDown() : used by the keyboard, for the E key
+	public void onAttackKeyDown(){
+		keyboardDisabled = true;
+		this.moveTimer.arrêter();
+		this.animTimer.arrêter();
+		this.action = "attack";
+		this.arrêter();
+		this.attackAnimTimer.démarrer();
+	}
+	
+	// changeHurtState() : changes the hurtState String when Link gets hurt
+	public void changeHurtState(){
+		if(this.cptHurtState == 0){
+			this.hurtState = "";
+		}else{
+			this.hurtState = "_hurt_" + this.cptHurtState;
+		}
+		
+		// based on Link's current action, shows the correct sprite (at a faster rate than movePos() or animate()) :
+		switch(this.action){
+			case "" :
+				this.afficherImage("link" + this.hurtState + "_" + this.orientation + "_1.png");
+				break;
+			case "walk" :
+				this.afficherImage("link" + this.hurtState + "_" + this.orientation + "_" + this.cptAnim + ".png");
+				break;
+			case "attack" :
+				this.afficherImage("link" + this.hurtState + "_attack_" + this.orientation + "_body_" + this.cptAttackAnim + ".png");
+				break;
+			default :
+				tangara.écrire("unvalid action");
+				break;
+		}
+		
+		this.cptHurtState++;
+		
+		if(this.cptHurtState > 3){
+			this.cptHurtState = 0;
+			this.hurtStateIterationCount++;
+		}
+		if(this.hurtStateIterationCount > 3){
+			this.invincible = false;
+			this.hurtTimer.arrêter();
+			this.cptHurtState = 1;
+			this.hurtStateIterationCount = 0;
+			this.hurtState = "";
+			this.afficherImage("link_" + this.orientation + "_1.png");
+		}
+	}
+	
+	public void startHurtTimer(){
+		this.invincible = true;
+		this.hurtTimer.démarrer();
+	}
+	
+	public boolean getInvincibleState(){
+		return this.invincible;
+	}
+
+	public void knockback(String dir){
+		if(dir == null) return;
+
+		this.arrêter();
+
+		switch(dir){
+			case "up":
+				for(int i = 0; i < 8; i++){
+					this.monter(8);
+				}
+				break;
+			case "right":
+				for(int i = 0; i < 8; i++){
+					this.avancer(8);
+				}
+				break;
+			case "down":
+				for(int i = 0; i < 8; i++){
+					this.descendre(8);
+				}
+				break;
+			case "left":
+				for(int i = 0; i < 8; i++){
+					this.reculer(8);
+				}
+				break;
+			default:
+				tangara.écrire("error, unvalid direction : " + dir);
+				break;
+		}
+	}
+}
+
+//=============//
+//  INSTANCES  //
+//=============//
+
+// link
+link = new Link();
+
+// keyboard
+keyboard = new CommandesClavier();
+
+keyboard.ajouterCommande("z","link.onKeyDown(#"up#")");
+keyboard.ajouterCommande("q","link.onKeyDown(#"left#")");
+keyboard.ajouterCommande("s","link.onKeyDown(#"down#")");
+keyboard.ajouterCommande("d","link.onKeyDown(#"right#")");
+
+keyboard.ajouterCommandeRepos("z","link.onKeyUp()");
+keyboard.ajouterCommandeRepos("q","link.onKeyUp()");
+keyboard.ajouterCommandeRepos("s","link.onKeyUp()");
+keyboard.ajouterCommandeRepos("d","link.onKeyUp()");

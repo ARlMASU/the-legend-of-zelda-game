@@ -1,0 +1,438 @@
+//<tangara version="1" encoding="UTF-8">////===========//
+//  CLASSES  //
+//===========//
+
+public class HandleFlames{
+	private int cptFlameSprite = 1;
+	public Animation[] flames = new Animation[2];
+	private Minuteur flameTimer = new Minuteur();
+
+	public HandleFlames(){
+		for(int i = 0; i < 2; i++){
+			this.flames[i] = new Animation("flame_1.png");
+			this.flames[i].ajouterImage("flame_2.png");
+			this.flames[i].cacher();
+		}
+
+		setObjTilePos(flames[0], 4.5, 4);
+		setObjTilePos(flames[1], 10.5, 4);
+
+		this.flameTimer.définirDélai(120);
+		this.flameTimer.ajouterCommande("animateFlames()");
+	}
+
+	public void animFlames(){
+		for(int i = 0; i < 2; i++){
+			this.flames[i].afficherImage("flame_" + this.cptFlameSprite + ".png");
+		}	
+		this.cptFlameSprite++;
+		if(this.cptFlameSprite > 2){
+			this.cptFlameSprite = 1;
+		}
+	}
+
+	public void show(){
+		this.flameTimer.démarrer();
+		for(int i = 0; i < 2; i++){
+			this.flames[i].montrer();
+		}
+	}
+
+	public void hide(){
+		this.flameTimer.arrêter();
+		for(int i = 0; i < 2; i++){
+			this.flames[i].cacher();
+		}
+	}
+}
+
+// PriceDisplay : text indicating the value of a certain shop item
+public class PriceDisplay{
+	private int priceAmount;
+	public Texte text;
+	
+	public PriceDisplay(){
+		this.text = new Texte();
+		this.text.définirCouleur("blanc");
+		this.text.définirTailleTexte(32);
+		this.text.définirPosition(-1000,-1000);
+	}
+	
+	public void setPrice(int newPrice){
+		this.priceAmount = newPrice;
+	}
+
+	public void show(x, y){
+		this.text.définirTexte(""+this.priceAmount);
+		setObjTilePos(this.text, x, y);
+	}
+	
+	public void hide(){
+		this.text.définirPosition(-1000,-1000);
+	}
+}
+
+// Item : a shop item present in Caves
+public class Item{
+	private String name;
+	private int price;
+	private boolean taken = false;
+	private String merchantMessage;
+	private int caveId; // : in what cave is the item ?
+	private int indexInCave;
+	
+	public Animation anim;
+	
+	public Item(String itemName, int price, String merchantMsg){
+		this.name = itemName;
+		this.price = price;
+		this.merchantMessage = merchantMsg;
+		
+		this.anim = new Animation("item_" + itemName + ".png");
+		this.anim.cacher();
+	}
+	
+	public int getCaveId(){
+		return this.caveId;
+	}
+	
+	public int getIndexInCave(){
+		return this.indexInCave;
+	}
+	
+	public int getPrice(){
+		return this.price;
+	}
+	
+	public String getMerchantMessage(){
+		return this.merchantMessage;
+	}
+	
+	public boolean isTaken(){
+		return this.taken;
+	}
+
+	public void setCaveIdAndIndexInCave(int cId, int iInCave){
+		this.caveId = cId;
+		this.indexInCave = iInCave;
+	}
+	
+	public void pickUp(){
+		this.anim.cacher();
+		this.taken = true;
+
+		soundItem.écouter();
+		
+		if(this.price > 0){
+			currentlyTakingAnItem = true;
+			
+			delayTimer.ajouterCommande("delaySpendRupees(" + this.price + ")");
+			delayTimer.démarrer();
+		}
+		
+		// for each specific item, do certain specific things
+		switch(this.name){
+			case "sword" :
+				getHudItem("sword").montrer(); // adds the sword icon to the hud
+				keyboard.ajouterCommande("e", "link.onAttackKeyDown()"); // adds the availability of the attack button
+				break;
+			case "heart_container":
+				addHeartContainer();
+				break;
+			default :
+				tangara.écrire("unhandled item name");
+				break;
+		}
+	}
+	
+	public void handleCollision(){
+		// when having multiple paremeters to a function in quotes, we can't just pass the values, we need to transform them to Strings
+		String itemInfos = "#"" + this.getCaveId() + "#",#"" + this.getIndexInCave() + "#"";
+		link.siCollisionAvec(this.anim, "pickUpItem(" + itemInfos + ")");
+	}
+}
+
+// Merchant : contains the text of the Merchant and its sprite
+public class Merchant{
+	private String dialog;
+	private String name;
+	private String defaultDialog;
+	public Animation anim;
+	public Texte text;
+	
+	public Merchant(String name, String defaultDialog){
+		this.defaultDialog = defaultDialog;
+		
+		this.anim = new Animation("merchant_" + name + ".png");
+		setObjTilePos(this.anim, 7.5, 4);
+		this.anim.cacher();
+		
+		this.text = new Texte(defaultDialog);
+		this.text.définirCouleur("blanc");
+		this.text.définirTailleTexte(32);
+		this.text.définirHauteur(300);
+		this.text.définirLargeur(600);
+		this.text.définirPosition(-1000,-1000);
+	}
+	
+	public void showDefaultDialog(){
+		this.text.définirTexte(this.defaultDialog);
+	}
+	
+	public void setDialog(String newDialogText){
+		if(newDialogText == "") return;
+		
+		this.text.définirTexte(newDialogText);
+	}
+	
+	public void show(){
+		setObjTilePos(this.text, 4, 3);
+		this.anim.montrer();
+	}
+
+	public void hide(){
+		this.anim.cacher();
+		this.text.définirPosition(-1000,-1000);
+	}
+	
+}
+
+// Cave : contains every elements necessary to the cave : items, merchant
+public class Cave{
+	public static int cptCave = 1;
+	public Merchant merchant;
+	public Item[] items;
+	public Animation rupeeSprite = new Animation("rupee_x.png");
+	public HandleFlames handleFlames = new HandleFlames();
+	private int caveId;
+	
+	public Cave(String merchantName, String defaultMerchantDialog, Item[] items){
+		this.caveId = cptCave++;
+		this.merchant = new Merchant(merchantName, defaultMerchantDialog);
+		this.items = items;
+		
+		for(int i = 0; i < items.length; i++){
+			items[i].setCaveIdAndIndexInCave(this.caveId, i);
+		}
+
+		setObjTilePos(this.rupeeSprite, 3, 6.5);
+		this.rupeeSprite.cacher();
+	}
+	
+	public Item[] getItems() {
+        return this.items;
+    }
+	
+	public int getCaveId(){
+		return this.caveId;
+	}
+	
+	public void show(){
+		this.merchant.show();
+		this.merchant.showDefaultDialog();
+
+		this.handleFlames.show();
+		
+		double startX = 7.5 - (this.items.length - 1); // items are between tiles, the center is at x = 7.5
+		
+		for(int i = 0; i < this.items.length; i++){
+			Item item = this.items[i];
+
+			if(item.isTaken()){
+				continue;
+			};
+			
+			double itemX = startX + i * 2;
+
+			setObjTilePos(item.anim, itemX, 5.5);
+
+			item.anim.montrer();
+			item.handleCollision();
+			
+			prices[i].setPrice(item.getPrice());
+			if(item.getPrice() > 0){
+				prices[i].show((itemX + 0.1875), 6.75); // 0.1875 = 12 real px = 3 pixel-art px
+				this.rupeeSprite.montrer();
+			}
+		}
+	}
+	
+	public void hide(){
+		for(Item item : this.items){
+			item.anim.cacher();
+		}
+		
+		this.merchant.hide();
+		this.handleFlames.hide();
+		this.rupeeSprite.cacher();
+		
+		for(PriceDisplay price : prices){
+			price.hide();
+		}
+	}
+}
+
+//=============//
+//  VARIABLES  //
+//=============//
+
+public boolean currentlyTakingAnItem = false;
+
+//=============//
+//  FUNCTIONS  //
+//=============//
+
+public void animateFlames(){
+	caves[caveId-1].handleFlames.animFlames();
+}
+
+public void delaySpendRupees(int price){
+	link.incrementRupees(-price); // removes the price of the item
+	soundRupeesDecreasing.écouter();
+	delayTimer.arrêter();
+}
+
+// pickUpItem : pick up a specific item in a shop based on the cave's id and the index of the item
+public void pickUpItem(String cId, String iInCave){
+	if(currentlyTakingAnItem) return;
+
+	int caveId = Integer.parseInt(cId); 
+	int indexInCave = Integer.parseInt(iInCave);
+	
+	Item currentItem = caves[caveId-1].getItems()[indexInCave];
+			
+	// if we got enough rupees
+	if(link.getRupees() >= currentItem.getPrice()){
+		currentItem.pickUp();
+		prices[indexInCave].hide();
+		caves[caveId-1].merchant.setDialog(currentItem.getMerchantMessage());
+	}
+}
+
+// goToCave() : used when colliding with a CaveEntrance in objects.tgr 
+public void goToCave(String x, String y, String cId){
+	int posX = Integer.parseInt(x); 
+	int posY = Integer.parseInt(y);
+	caveId = Integer.parseInt(cId);
+	
+	currentCaveEntrancePosX = posX;
+	currentCaveEntrancePosY = posY;
+
+	keyboard.désactiver();
+	link.afficherImage("link_cave_entrance_1.png");
+	setObjTilePos(link, posX, posY);
+	link.startCaveEntranceAnimTimer(); // animation when entering the cave
+	soundStairs.écouter();
+}
+
+// loadCave() :  used at the end of the caveEntranceAnimation in link.tgr
+public void loadCave(int caveId){
+	inCave = true; // global variable from zelda.tgr
+	
+	for(SceneObject obj : objectsPerScene[currentSceneId-1]){
+		obj.hide();
+	}
+	clearSceneItems();
+	deleteEnemyProjectiles();
+	
+	bg.afficherImage("bg_black.png");
+	
+	handleTilesDisplay(129);
+
+	keyboard.activer();
+			
+	caves[caveId-1].show();
+
+	setObjTilePos(link, 7.5, 10);
+	link.afficherImage("link_up_1.png");
+	link.montrer();
+	link.monter(64);
+}
+
+//=============//
+//  INSTANCES  //
+//=============//
+
+public Minuteur delayTimer = new Minuteur();
+delayTimer.définirDélai(1200);
+delayTimer.répéter(false);
+
+PriceDisplay[] prices = new PriceDisplay[3];
+
+for(int i = 0; i < 3; i++){
+	prices[i] = new PriceDisplay();
+}
+
+Cave[] caves = {
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//1
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//2
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//3
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//4
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//5
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//6
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//7
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//8
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//9
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//10
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//11
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//12
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//13
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//14
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//15
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//16
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//17
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!"),
+		new Item("heart_container",50, "Thanks mate!"),
+		new Item("heart_container",50, "Thanks mate!")
+	}),//18
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//19
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//20
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//21
+	new Cave("moustachu", "Buy somethin' will ya!", new Item[]{
+		new Item("heart_container",50, "Thanks mate!")
+	}),//22
+	new Cave("old_man", "It is dangerous to go alone! Take this", new Item[]{
+		new Item("sword", 0, " ")
+	})//23
+};
